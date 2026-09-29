@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Red de Agregación</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Red de Agregación</h1>
+    <p>Asignación de estaciones base (BTS) a controladores mediante un algoritmo Greedy por distancia con capacidad</p>
+  </header>
+
+  <main class="layout">
+    <aside class="panel">
+      <section class="card">
+        <h2>1. Estaciones base</h2>
+        <label class="file">
+          <span>Fichero Excel (Id, X, Y)</span>
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.ods,.csv">
+        </label>
+        <p class="hint">Tres columnas: identificador de la BTS y coordenadas X e Y en metros. La fila de cabecera es opcional.</p>
+        <button type="button" id="exampleBtn" class="link">Cargar datos de ejemplo</button>
+        <div id="fileInfo" class="info"></div>
+      </section>
+
+      <section class="card">
+        <h2>2. Parámetros</h2>
+        <label>
+          <span>Número de controladores</span>
+          <input type="number" id="numControllers" min="1" step="1" value="4">
+        </label>
+        <label>
+          <span>Máx. BTS por controlador</span>
+          <input type="number" id="capacity" min="1" step="1" value="10">
+        </label>
+        <label>
+          <span>Semilla aleatoria <em>(opcional)</em></span>
+          <input type="text" id="seed" placeholder="vacío = aleatorio">
+        </label>
+        <div id="capacityInfo" class="info"></div>
+        <button type="button" id="runBtn" class="primary" disabled>RUN</button>
+      </section>
+
+      <section class="card" id="stepCard" hidden>
+        <h2>3. Paso a paso</h2>
+        <p class="hint">Recorre las asignaciones en el orden en que las realiza el algoritmo (de menor a mayor distancia).</p>
+        <div class="steps">
+          <button type="button" id="stepBack" title="Paso anterior">◀</button>
+          <button type="button" id="playBtn">▶ Reproducir</button>
+          <button type="button" id="stepFwd" title="Paso siguiente">▶</button>
+          <button type="button" id="stepAll" title="Mostrar todo">⏭</button>
+        </div>
+        <input type="range" id="stepSlider" min="0" value="0">
+        <div id="stepInfo" class="info"></div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div class="card map-card">
+        <canvas id="map"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+        <div id="legend" class="legend"></div>
+      </div>
+
+      <div id="results" hidden>
+        <div class="stats" id="stats"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Controladores</h2>
+            <button type="button" id="exportBtn">Descargar resultados (.xlsx)</button>
+          </div>
+          <div class="table-wrap"><table id="controllerTable"></table></div>
+        </div>
+
+        <div class="card">
+          <h2>Asignación de BTS</h2>
+          <div class="table-wrap tall"><table id="assignmentTable"></table></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="js/algorithm.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
