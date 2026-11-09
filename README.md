@@ -73,6 +73,12 @@ tres pestañas:
   y los enlaces coloreados por controlador; modo **paso a paso** (en el método por
   rondas indica también la ronda de cada asignación); indicadores (BTS asignadas,
   distancia total, media y máxima); tabla por controlador y tabla de asignación por BTS.
+- En la pestaña **Greedy por rondas** se puede ver el **resultado de cada ronda**: los
+  botones *Ronda 1 … R* del panel *Paso a paso* (o las filas de la tabla *Resultado
+  de cada ronda*) muestran el mapa al terminar esa ronda. Las BTS que aún no tienen
+  controlador se ven apagadas y los enlaces de rondas anteriores, más tenues. La tabla
+  resume, para cada ronda, el límite por controlador, las BTS asignadas en la ronda y
+  acumuladas, las pendientes y la distancia media y máxima de la ronda.
 - **Comparación**: los indicadores de los dos métodos lado a lado (incluida la
   desviación típica de la distancia y el reparto de BTS entre controladores), el
   número de BTS que cambian de controlador y una tabla por controlador.

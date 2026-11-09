@@ -14,6 +14,7 @@
   --ok-text: #1d6b37;
   --grid: #eceff4;
   --axis: #8a93a3;
+  --pending: #b3b9c3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,6 +34,7 @@
     --ok-text: #8fd9aa;
     --grid: #232a35;
     --axis: #6b7587;
+    --pending: #394150;
     color-scheme: dark;
   }
 }
@@ -53,6 +55,7 @@
   --ok-text: #8fd9aa;
   --grid: #232a35;
   --axis: #6b7587;
+  --pending: #394150;
   color-scheme: dark;
 }
 
@@ -158,6 +161,10 @@ button.link {
 .info ul { margin: 4px 0 0; padding-left: 18px; }
 
 .steps { display: flex; gap: 6px; }
+.round-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.round-nav button { padding: 4px 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.round-nav button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+tr.current td { background: var(--bg); font-weight: 600; }
 .steps button { flex: 0 0 auto; }
 .steps #playBtn { flex: 1 1 auto; }
 

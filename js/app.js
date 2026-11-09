@@ -26,6 +26,9 @@
     playBtn: $("playBtn"),
     stepSlider: $("stepSlider"),
     stepInfo: $("stepInfo"),
+    roundNav: $("roundNav"),
+    roundCard: $("roundCard"),
+    roundTable: $("roundTable"),
     tabsWrap: $("tabsWrap"),
     tabButtons: Array.prototype.slice.call(document.querySelectorAll("[data-tab]")),
     methodInfo: $("methodInfo"),
@@ -64,6 +67,7 @@
     tab: "greedy",  // "greedy" | "rounds" | "compare"
     shown: { greedy: 0, rounds: 0 }, // pasos visibles en el mapa de cada método
     timer: null,
+    pickedRound: 0, // última ronda elegida con los botones de ronda
     view: null,     // transformación mundo -> pantalla del último dibujo
   };
 
@@ -405,6 +409,10 @@
 
     if (isMethod) els.methodInfo.textContent += separationText();
 
+    els.roundNav.hidden = tab !== "rounds";
+    els.roundCard.hidden = tab !== "rounds";
+    if (tab === "rounds") renderRounds();
+
     if (isMethod) {
       const res = current();
       els.stepSlider.max = res.steps.length;
@@ -439,6 +447,15 @@
     els.stepSlider.value = shown;
     if (shown === 0) {
       setInfo(els.stepInfo, "", "Paso 0 de " + steps.length + ": controladores situados, ninguna BTS asignada.");
+    } else if (state.tab === "rounds" && roundAtEnd(shown)) {
+      const r = roundAtEnd(shown);
+      const ends = roundEnds(res);
+      const added = shown - (r === 1 ? 0 : ends[r - 2]);
+      const pending = state.bts.length - shown;
+      setInfo(els.stepInfo, "",
+        "<b>Fin de la ronda " + r + "</b> de " + state.run.rounds + " (límite " + res.limits[r - 1] +
+        " BTS por controlador): " + (added ? added + " BTS asignadas en esta ronda, " : "en esta ronda no se asigna ninguna BTS; ") +
+        shown + " en total" + (pending ? " y " + pending + " aún sin asignar (apagadas en el mapa)." : "."));
     } else {
       const s = steps[shown - 1];
       setInfo(els.stepInfo, "",
@@ -446,7 +463,89 @@
         "Paso <b>" + shown + "</b> de " + steps.length + ": " +
         escapeHtml(state.bts[s.bts].id) + " → <b>C" + (s.controller + 1) + "</b> (" + fmtMeters(s.distance) + ")");
     }
+    if (state.tab === "rounds") highlightRound();
     draw();
+  }
+
+  // ------------------------------------------------------------------ rondas
+
+  // Número de pasos acumulados al final de cada ronda: ends[r - 1].
+  function roundEnds(res) {
+    const ends = [];
+    for (let r = 1; r <= state.run.rounds; r++) {
+      let k = r === 1 ? 0 : ends[r - 2];
+      while (k < res.steps.length && res.steps[k].round <= r) k++;
+      ends.push(k);
+    }
+    return ends;
+  }
+
+  // Ronda que termina justo en el paso `shown` (0 si no coincide con el final de una ronda).
+  // Si varias rondas acaban en el mismo paso (rondas en las que no se asigna nada),
+  // se respeta la que se haya elegido con los botones; si no, la primera.
+  function roundAtEnd(shown) {
+    const ends = roundEnds(state.run.results.rounds);
+    const picked = state.pickedRound;
+    if (picked && ends[picked - 1] === shown) return picked;
+    const r = ends.indexOf(shown);
+    return r === -1 ? 0 : r + 1;
+  }
+
+  // Ronda a la que pertenece lo que se ve en el mapa (0 antes de empezar).
+  function currentRound() {
+    const shown = state.shown.rounds;
+    return shown === 0 ? 0 : state.run.results.rounds.steps[shown - 1].round;
+  }
+
+  function showRound(r) {
+    stopPlay();
+    state.pickedRound = r;
+    setShown(r === 0 ? 0 : roundEnds(state.run.results.rounds)[r - 1]);
+  }
+
+  function renderRounds() {
+    const run = state.run;
+    const res = run.results.rounds;
+    const ends = roundEnds(res);
+
+    let nav = "<button type=\"button\" data-round=\"0\" aria-pressed=\"false\">Inicio</button>";
+    for (let r = 1; r <= run.rounds; r++) {
+      nav += "<button type=\"button\" data-round=\"" + r + "\" aria-pressed=\"false\">Ronda " + r + "</button>";
+    }
+    els.roundNav.innerHTML = nav;
+
+    let html = "<thead><tr><th class=\"num\">Ronda</th><th class=\"num\">Límite por controlador</th>" +
+      "<th class=\"num\">Asignadas en la ronda</th><th class=\"num\">Asignadas acumuladas</th>" +
+      "<th class=\"num\">Sin asignar</th><th class=\"num\">Dist. media de la ronda</th>" +
+      "<th class=\"num\">Dist. máx. de la ronda</th></tr></thead><tbody>";
+    for (let r = 1; r <= run.rounds; r++) {
+      const from = r === 1 ? 0 : ends[r - 2];
+      const to = ends[r - 1];
+      let sum = 0, max = 0;
+      for (let k = from; k < to; k++) { sum += res.steps[k].distance; max = Math.max(max, res.steps[k].distance); }
+      const count = to - from;
+      html += "<tr data-round=\"" + r + "\" tabindex=\"0\" style=\"cursor:pointer\"><td class=\"num\">" + r + "</td>" +
+        "<td class=\"num\">" + res.limits[r - 1] + "</td>" +
+        "<td class=\"num\">" + count + "</td><td class=\"num\">" + to + "</td>" +
+        "<td class=\"num\">" + (state.bts.length - to) + "</td>" +
+        "<td class=\"num\">" + (count ? fmtMeters(sum / count) : "—") + "</td>" +
+        "<td class=\"num\">" + (count ? fmtMeters(max) : "—") + "</td></tr>";
+    }
+    els.roundTable.innerHTML = html + "</tbody>";
+  }
+
+  // Marca el botón y la fila de la ronda que se ve en el mapa.
+  function highlightRound() {
+    const shown = state.shown.rounds;
+    const atEnd = shown === 0 ? 0 : roundAtEnd(shown);
+    const cur = currentRound();
+    Array.prototype.forEach.call(els.roundNav.querySelectorAll("button"), function (b) {
+      const r = Number(b.dataset.round);
+      b.setAttribute("aria-pressed", (shown === 0 ? r === 0 : atEnd === r) ? "true" : "false");
+    });
+    Array.prototype.forEach.call(els.roundTable.querySelectorAll("tbody tr"), function (tr) {
+      tr.classList.toggle("current", Number(tr.dataset.round) === cur);
+    });
   }
 
   function stopPlay() {
@@ -571,12 +670,14 @@
     const owner = new Array(state.bts.length).fill(-1);
     if (res) {
       const steps = res.steps;
-      // Enlaces BTS -> controlador de los pasos visibles.
-      ctx.globalAlpha = 0.55;
+      // Enlaces BTS -> controlador de los pasos visibles. En el método por rondas,
+      // los de rondas anteriores se dibujan más tenues que los de la ronda actual.
+      const lastRound = state.tab === "rounds" && shown > 0 ? steps[shown - 1].round : 0;
       ctx.lineWidth = 1.2;
       for (let k = 0; k < shown; k++) {
         const s = steps[k];
         owner[s.bts] = s.controller;
+        ctx.globalAlpha = lastRound && s.round < lastRound ? 0.22 : 0.65;
         const b = state.bts[s.bts];
         const c = state.bts[run.controllers[s.controller]];
         ctx.strokeStyle = run.colors[s.controller];
@@ -610,8 +711,14 @@
         ctx.stroke();
         return;
       }
-      ctx.fillStyle = owner[i] === -1 ? muted : run.colors[owner[i]];
-      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fill();
+      if (owner[i] === -1) {
+        // Sin asignar todavía: punto apagado.
+        ctx.fillStyle = res ? cssVar("--pending") : muted;
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, 2 * Math.PI); ctx.fill();
+        return;
+      }
+      ctx.fillStyle = run.colors[owner[i]];
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.fill();
     });
 
     // Controladores.
@@ -709,7 +816,9 @@
     let html = run.colors.map(function (col, c) {
       return "<span><i style=\"background:" + col + "\"></i>C" + (c + 1) + "</span>";
     }).join("");
-    html += "<span>■ controlador · ● BTS" + (res.unassigned.length ? " · ✕ sin asignar" : "") + "</span>";
+    html += "<span>■ controlador · ● BTS asignada</span>" +
+      "<span><i style=\"background:var(--pending);border-radius:50%\"></i>BTS aún sin asignar</span>" +
+      (res.unassigned.length ? "<span>✕ sin asignar al final</span>" : "");
     els.legend.innerHTML = html;
   }
 
@@ -925,6 +1034,21 @@
   els.stepAll.addEventListener("click", function () { stopPlay(); setShown(Infinity); });
   els.stepSlider.addEventListener("input", function () { stopPlay(); setShown(Number(els.stepSlider.value)); });
   els.playBtn.addEventListener("click", togglePlay);
+  els.roundNav.addEventListener("click", function (ev) {
+    const b = ev.target.closest("button[data-round]");
+    if (b) showRound(Number(b.dataset.round));
+  });
+  els.roundTable.addEventListener("click", function (ev) {
+    const tr = ev.target.closest("tr[data-round]");
+    if (tr) {
+      showRound(Number(tr.dataset.round));
+      els.mapCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+  els.roundTable.addEventListener("keydown", function (ev) {
+    const tr = ev.target.closest("tr[data-round]");
+    if (tr && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); showRound(Number(tr.dataset.round)); }
+  });
   els.exportBtn.addEventListener("click", exportResults);
   els.exportBtn2.addEventListener("click", exportResults);
   els.canvas.addEventListener("mousemove", onHover);

@@ -63,6 +63,7 @@
           <button type="button" id="stepAll" title="Mostrar todo">⏭</button>
         </div>
         <input type="range" id="stepSlider" min="0" value="0">
+        <div id="roundNav" class="round-nav" role="group" aria-label="Ver el resultado de cada ronda" hidden></div>
         <div id="stepInfo" class="info"></div>
       </section>
     </aside>
@@ -92,6 +93,12 @@
             <button type="button" id="exportBtn">Descargar resultados (.xlsx)</button>
           </div>
           <div class="table-wrap"><table id="controllerTable"></table></div>
+        </div>
+
+        <div class="card" id="roundCard" hidden>
+          <h2>Resultado de cada ronda</h2>
+          <p class="hint">Pulsa una fila (o un botón de ronda del panel «Paso a paso») para ver el mapa al terminar esa ronda. Las BTS aún sin asignar se muestran apagadas.</p>
+          <div class="table-wrap"><table id="roundTable"></table></div>
         </div>
 
         <div class="card">
