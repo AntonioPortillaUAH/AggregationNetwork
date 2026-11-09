@@ -142,3 +142,58 @@ test("selectControllersWithMinDistance sin distancia mínima equivale a selectCo
   assert.deepEqual(r.controllers, A.selectControllers(20, 5, A.createRng("x")));
   assert.throws(() => A.selectControllersWithMinDistance(bts, 21, 10, A.createRng("x")));
 });
+
+test("sequentialAssign llena cada controlador por orden antes de pasar al siguiente", () => {
+  // A en x=0, B en x=10; p en x=6 está más cerca de B (4) que de A (6).
+  const bts = [
+    { id: "A", x: 0, y: 0 },
+    { id: "B", x: 10, y: 0 },
+    { id: "p", x: 6, y: 0 },
+  ];
+  // Greedy ordenado: p va a B, su controlador más cercano.
+  assert.deepEqual(A.greedyAssign(bts, [0, 1], 2).assignment, [0, 1, 1]);
+  // Secuencial: A elige primero y se queda con p.
+  const r = A.sequentialAssign(bts, [0, 1], 2);
+  assert.deepEqual(r.assignment, [0, 1, 0]);
+  assert.deepEqual(r.steps.map((s) => s.controller), [0, 0, 1]);
+  // Cambiando el orden de los controladores, p va a B.
+  assert.deepEqual(A.sequentialAssign(bts, [1, 0], 2).assignment, [1, 0, 0]);
+});
+
+test("sequentialAssign reserva a cada controlador su propio emplazamiento", () => {
+  const bts = [
+    { id: "A", x: 0, y: 0 },
+    { id: "B", x: 1, y: 0 },
+    { id: "c", x: 2, y: 0 },
+  ];
+  const r = A.sequentialAssign(bts, [0, 1], 5);
+  assert.equal(r.assignment[0], 0);
+  assert.equal(r.assignment[1], 1);
+  assert.equal(r.assignment[2], 0); // A no puede tomar B, pero sí c
+});
+
+test("sequentialRoundsAssign reparte por rondas y controladores", () => {
+  const bts = [
+    { id: "A", x: 0, y: 0 },
+    { id: "B", x: 100, y: 0 },
+    { id: "a1", x: 1, y: 0 },
+    { id: "a2", x: 2, y: 0 },
+  ];
+  // Límites 1, 2, 3. Ronda 1: A toma A, B toma B. Ronda 2: A toma a1, B toma a2.
+  const r = A.sequentialRoundsAssign(bts, [0, 1], 3, 3);
+  assert.deepEqual(r.assignment, [0, 1, 0, 1]);
+  assert.deepEqual(r.steps.map((s) => [s.bts, s.round]), [[0, 1], [1, 1], [2, 2], [3, 2]]);
+  // Con una ronda coincide con el secuencial normal.
+  assert.deepEqual(A.sequentialRoundsAssign(bts, [0, 1], 3, 1).assignment, A.sequentialAssign(bts, [0, 1], 3).assignment);
+});
+
+test("sequentialRoundsAssign asigna tantas BTS como permite la capacidad total", () => {
+  const rng = A.createRng("secuencial");
+  const bts = Array.from({ length: 50 }, (_, i) => ({ id: "B" + i, x: rng() * 1000, y: rng() * 1000 }));
+  const ctrls = A.selectControllers(bts.length, 4, rng);
+  const r = A.sequentialRoundsAssign(bts, ctrls, 10, 3);
+  assert.equal(r.steps.length, 40);
+  assert.deepEqual(r.loads, [10, 10, 10, 10]);
+  ctrls.forEach((site, c) => assert.equal(r.assignment[site], c));
+  assert.throws(() => A.sequentialRoundsAssign(bts, ctrls, 3, 4));
+});

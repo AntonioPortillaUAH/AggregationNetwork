@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <h1>Red de Agregación</h1>
-    <p>Asignación de estaciones base (BTS) a controladores mediante un algoritmo Greedy por distancia con capacidad</p>
+    <p>Asignación de estaciones base (BTS) a controladores mediante algoritmos Greedy por distancia con capacidad</p>
   </header>
 
   <main class="layout">
@@ -40,7 +40,7 @@
           <input type="number" id="minDist" min="0" step="any" value="0">
         </label>
         <label>
-          <span>Número de rondas <em>(Greedy por rondas)</em></span>
+          <span>Número de rondas <em>(métodos por rondas)</em></span>
           <input type="number" id="numRounds" min="1" step="1" value="5">
         </label>
         <label>
@@ -71,8 +71,10 @@
     <section class="content">
       <div class="tabs-wrap" id="tabsWrap" hidden>
         <div class="tabs" role="tablist">
-          <button type="button" role="tab" id="tab-greedy" data-tab="greedy" aria-selected="true">Greedy clásico</button>
-          <button type="button" role="tab" id="tab-rounds" data-tab="rounds" aria-selected="false">Greedy por rondas</button>
+          <button type="button" role="tab" id="tab-greedy" data-tab="greedy" aria-selected="true">Greedy ordenado</button>
+          <button type="button" role="tab" id="tab-rounds" data-tab="rounds" aria-selected="false">Ordenado por rondas</button>
+          <button type="button" role="tab" id="tab-seq" data-tab="seq" aria-selected="false">Secuencial por controlador</button>
+          <button type="button" role="tab" id="tab-seqRounds" data-tab="seqRounds" aria-selected="false">Secuencial por rondas</button>
           <button type="button" role="tab" id="tab-compare" data-tab="compare" aria-selected="false">Comparación</button>
         </div>
         <p class="method-info" id="methodInfo"></p>
@@ -110,7 +112,7 @@
       <div id="compare" hidden>
         <div class="card">
           <div class="card-head">
-            <h2>Indicadores de los dos métodos</h2>
+            <h2>Indicadores de los cuatro métodos</h2>
             <button type="button" id="exportBtn2">Descargar resultados (.xlsx)</button>
           </div>
           <div class="table-wrap"><table id="compareTable"></table></div>

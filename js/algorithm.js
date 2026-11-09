@@ -5,9 +5,10 @@
  *  - Generador pseudoaleatorio con semilla (para repetir experimentos).
  *  - Selección aleatoria de los emplazamientos de los controladores, con una
  *    distancia mínima opcional entre ellos.
- *  - Algoritmo Greedy de asignación BTS -> controlador por distancia
- *    respetando la capacidad máxima de cada controlador, en su versión
- *    clásica y en su versión por rondas.
+ *  - Algoritmos Greedy de asignación BTS -> controlador por distancia
+ *    respetando la capacidad máxima de cada controlador: Greedy ordenado
+ *    (por parejas BTS-controlador de menor a mayor distancia) y Greedy
+ *    secuencial por controlador, cada uno en versión normal y por rondas.
  *
  * Funciona tanto en el navegador (window.Aggregation) como en Node (require).
  */
@@ -254,7 +255,7 @@
   }
 
   /**
-   * Algoritmo Greedy de asignación por distancia con capacidad, en rondas.
+   * Greedy ordenado por rondas (asignación por distancia con capacidad).
    *
    * 1. Se calculan las distancias de todas las parejas (BTS, controlador).
    * 2. Se ordenan de menor a mayor distancia.
@@ -263,13 +264,13 @@
    *    (limits[r]), se asigna.
    *
    * Con una sola ronda el límite es directamente la capacidad y se obtiene el
-   * Greedy clásico.
+   * Greedy ordenado.
    *
    * Parámetros:
    *   bts          lista de {id, x, y}
    *   controllers  índices (en `bts`) de los emplazamientos de controlador
    *   capacity     número máximo de BTS por controlador
-   *   rounds       número de rondas (1 = Greedy clásico)
+   *   rounds       número de rondas (1 = Greedy ordenado)
    *
    * Devuelve:
    *   assignment[i]   índice del controlador (0..C-1) de la BTS i, o -1
@@ -332,13 +333,105 @@
   }
 
   /**
-   * Algoritmo Greedy clásico de asignación por distancia con capacidad:
+   * Greedy ordenado (asignación por distancia con capacidad):
    * se recorren las parejas (BTS, controlador) de menor a mayor distancia y se
    * asigna la BTS si aún está libre y el controlador no está lleno.
    * Equivale a greedyRoundsAssign con una única ronda.
    */
   function greedyAssign(bts, controllers, capacity) {
     return greedyRoundsAssign(bts, controllers, capacity, 1);
+  }
+
+  /**
+   * Greedy secuencial por controlador, en rondas.
+   *
+   * Los controladores se recorren en orden (C1, C2, ...). Cada controlador toma
+   * las BTS libres más cercanas a él, una tras otra, hasta alcanzar el límite de
+   * la ronda (limits[r]); después se pasa al siguiente controlador. Al terminar el
+   * último controlador empieza la ronda siguiente.
+   *
+   * La BTS donde está instalado cada controlador queda reservada para él (es la
+   * primera que toma, a distancia 0): ningún otro controlador puede quedársela.
+   *
+   * Con una sola ronda cada controlador se llena por completo antes de pasar al
+   * siguiente. Parámetros y resultado como en greedyRoundsAssign.
+   */
+  function sequentialRoundsAssign(bts, controllers, capacity, rounds) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error("La capacidad por controlador debe ser un entero mayor que 0.");
+    }
+    if (!Number.isInteger(rounds) || rounds < 1) {
+      throw new Error("El número de rondas debe ser un entero mayor que 0.");
+    }
+    if (rounds > capacity) {
+      throw new Error("El número de rondas (" + rounds + ") no puede ser mayor que el máximo de BTS por controlador (" + capacity + ").");
+    }
+
+    const siteOf = new Array(bts.length).fill(-1); // controlador instalado en cada BTS
+    controllers.forEach(function (idx, c) { siteOf[idx] = c; });
+
+    // Para cada controlador, las BTS que puede tomar ordenadas por distancia
+    // (su propio emplazamiento primero).
+    const lists = controllers.map(function (site, c) {
+      const list = [];
+      for (let i = 0; i < bts.length; i++) {
+        if (siteOf[i] === -1 || siteOf[i] === c) list.push({ bts: i, distance: distance(bts[i], bts[site]) });
+      }
+      list.sort(function (p, q) {
+        return p.distance - q.distance || (q.bts === site) - (p.bts === site) || p.bts - q.bts;
+      });
+      return list;
+    });
+
+    const limits = roundLimits(capacity, rounds);
+    const assignment = new Array(bts.length).fill(-1);
+    const distances = new Array(bts.length).fill(null);
+    const loads = new Array(controllers.length).fill(0);
+    const next = new Array(controllers.length).fill(0); // posición en la lista de cada controlador
+    const steps = [];
+    let remaining = Math.min(bts.length, controllers.length * capacity);
+
+    for (let r = 0; r < rounds && remaining > 0; r++) {
+      for (let c = 0; c < controllers.length && remaining > 0; c++) {
+        const list = lists[c];
+        while (loads[c] < limits[r] && remaining > 0) {
+          while (next[c] < list.length && assignment[list[next[c]].bts] !== -1) next[c]++;
+          if (next[c] === list.length) break;
+          const p = list[next[c]];
+          assignment[p.bts] = c;
+          distances[p.bts] = p.distance;
+          loads[c]++;
+          remaining--;
+          steps.push({ bts: p.bts, controller: c, distance: p.distance, round: r + 1 });
+        }
+      }
+    }
+
+    const unassigned = [];
+    let totalDistance = 0;
+    for (let i = 0; i < bts.length; i++) {
+      if (assignment[i] === -1) unassigned.push(i);
+      else totalDistance += distances[i];
+    }
+
+    return {
+      assignment: assignment,
+      distances: distances,
+      steps: steps,
+      loads: loads,
+      unassigned: unassigned,
+      totalDistance: totalDistance,
+      limits: limits,
+    };
+  }
+
+  /**
+   * Greedy secuencial por controlador: cada controlador, en orden, toma sus BTS
+   * libres más cercanas hasta llenarse y después se pasa al siguiente.
+   * Equivale a sequentialRoundsAssign con una única ronda.
+   */
+  function sequentialAssign(bts, controllers, capacity) {
+    return sequentialRoundsAssign(bts, controllers, capacity, 1);
   }
 
   return {
@@ -350,6 +443,8 @@
     greedyAssign: greedyAssign,
     greedyRoundsAssign: greedyRoundsAssign,
     roundLimits: roundLimits,
+    sequentialAssign: sequentialAssign,
+    sequentialRoundsAssign: sequentialRoundsAssign,
     distance: distance,
   };
 });

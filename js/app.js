@@ -48,12 +48,33 @@
     compareCtrlTable: $("compareCtrlTable"),
   };
 
-  // Métodos de asignación. Los dos usan los mismos controladores para que la
-  // comparación sea justa.
+  // Métodos de asignación. Todos usan los mismos controladores para que la
+  // comparación sea justa. `rounds` indica si el método trabaja por rondas.
   const METHODS = {
-    greedy: { label: "Greedy clásico", short: "Greedy" },
-    rounds: { label: "Greedy por rondas", short: "Rondas" },
+    greedy: {
+      label: "Greedy ordenado", short: "Ordenado", rounds: false,
+      assign: function (bts, ctrls, cap) { return A.greedyAssign(bts, ctrls, cap); },
+    },
+    rounds: {
+      label: "Greedy ordenado por rondas", short: "Ordenado por rondas", rounds: true,
+      assign: function (bts, ctrls, cap, r) { return A.greedyRoundsAssign(bts, ctrls, cap, r); },
+    },
+    seq: {
+      label: "Greedy secuencial por controlador", short: "Secuencial", rounds: false,
+      assign: function (bts, ctrls, cap) { return A.sequentialAssign(bts, ctrls, cap); },
+    },
+    seqRounds: {
+      label: "Greedy secuencial por controlador por rondas", short: "Secuencial por rondas", rounds: true,
+      assign: function (bts, ctrls, cap, r) { return A.sequentialRoundsAssign(bts, ctrls, cap, r); },
+    },
   };
+  const METHOD_KEYS = Object.keys(METHODS);
+
+  function emptyShown() {
+    const shown = {};
+    METHOD_KEYS.forEach(function (m) { shown[m] = 0; });
+    return shown;
+  }
 
   const state = {
     bts: [],
@@ -63,9 +84,9 @@
     // o si cambian el número de controladores, la distancia mínima o la semilla.
     selection: null, // { controllers, minSeparation, count, minDist, seed, number }
     selectionCount: 0, // selecciones hechas con la semilla actual
-    run: null,      // { controllers, capacity, rounds, minDist, minSeparation, seed, selection, colors, results: {greedy, rounds} }
-    tab: "greedy",  // "greedy" | "rounds" | "compare"
-    shown: { greedy: 0, rounds: 0 }, // pasos visibles en el mapa de cada método
+    run: null,      // { controllers, capacity, rounds, minDist, minSeparation, seed, selection, colors, results: {<método>: resultado} }
+    tab: "greedy",  // clave de METHODS o "compare"
+    shown: null,    // pasos visibles en el mapa de cada método
     timer: null,
     pickedRound: 0, // última ronda elegida con los botones de ronda
     view: null,     // transformación mundo -> pantalla del último dibujo
@@ -145,7 +166,7 @@
     state.selection = null;
     state.selectionCount = 0;
     state.run = null;
-    state.shown = { greedy: 0, rounds: 0 };
+    state.shown = emptyShown();
     els.tabsWrap.hidden = true;
     els.results.hidden = true;
     els.compare.hidden = true;
@@ -260,7 +281,7 @@
   // Quita los resultados anteriores y deja solo las BTS en el mapa.
   function clearRun() {
     state.run = null;
-    state.shown = { greedy: 0, rounds: 0 };
+    state.shown = emptyShown();
     els.tabsWrap.hidden = true;
     els.results.hidden = true;
     els.compare.hidden = true;
@@ -337,7 +358,7 @@
     return true;
   }
 
-  // Ejecuta los dos Greedy. Reutiliza los controladores ya elegidos salvo que se
+  // Ejecuta los cuatro Greedy. Reutiliza los controladores ya elegidos salvo que se
   // pida una selección nueva o la actual no valga para los parámetros actuales.
   function run(forceNewSelection) {
     stopPlay();
@@ -358,15 +379,13 @@
         seed: sel.seed,
         selection: sel.number,
         colors: controllerColors(controllers.length),
-        results: {
-          greedy: A.greedyAssign(state.bts, controllers, cap),
-          rounds: A.greedyRoundsAssign(state.bts, controllers, cap, rounds),
-        },
+        results: {},
       };
-      state.shown = {
-        greedy: state.run.results.greedy.steps.length,
-        rounds: state.run.results.rounds.steps.length,
-      };
+      state.shown = emptyShown();
+      METHOD_KEYS.forEach(function (m) {
+        state.run.results[m] = METHODS[m].assign(state.bts, controllers, cap, rounds);
+        state.shown[m] = state.run.results[m].steps.length;
+      });
     } catch (err) {
       clearRun();
       setInfo(els.capacityInfo, "error", escapeHtml(err.message));
@@ -393,25 +412,37 @@
     els.stepCard.hidden = !isMethod;
     els.compare.hidden = isMethod;
 
+    const perRound = run.capacity / run.rounds;
+    const limitsText = "límites acumulados " + A.roundLimits(run.capacity, run.rounds).join(", ");
     if (tab === "greedy") {
       els.methodInfo.textContent = "Recorre todas las parejas (BTS, controlador) de menor a mayor distancia y asigna " +
         "la BTS si aún está libre y el controlador no está lleno (máx. " + run.capacity + " BTS).";
       els.stepHint.textContent = "Recorre las asignaciones en el orden en que las realiza el algoritmo (de menor a mayor distancia).";
     } else if (tab === "rounds") {
-      els.methodInfo.textContent = "Igual que el Greedy clásico, pero en " + run.rounds + " rondas: en cada ronda cada " +
-        "controlador solo puede recibir unas " + fmtNum(run.capacity / run.rounds, 1) + " BTS más (límites acumulados " +
-        run.results.rounds.limits.join(", ") + ").";
+      els.methodInfo.textContent = "Igual que el Greedy ordenado, pero en " + run.rounds + " rondas: en cada ronda cada " +
+        "controlador solo puede recibir unas " + fmtNum(perRound, 1) + " BTS más (" + limitsText + ").";
       els.stepHint.textContent = "Recorre las asignaciones ronda a ronda; dentro de cada ronda, de menor a mayor distancia.";
+    } else if (tab === "seq") {
+      els.methodInfo.textContent = "Los controladores se atienden por orden (C1, C2, …): cada uno toma sus BTS libres más " +
+        "cercanas hasta llenarse (máx. " + run.capacity + " BTS) y después se pasa al siguiente. " +
+        "El emplazamiento de cada controlador queda reservado para él.";
+      els.stepHint.textContent = "Recorre las asignaciones controlador a controlador; cada uno, de su BTS más cercana a la más lejana.";
+    } else if (tab === "seqRounds") {
+      els.methodInfo.textContent = "Igual que el secuencial por controlador, pero en " + run.rounds + " rondas: en cada ronda " +
+        "C1, C2, … toman por turno sus BTS libres más cercanas hasta unas " + fmtNum(perRound, 1) + " más (" + limitsText + ").";
+      els.stepHint.textContent = "Recorre las asignaciones ronda a ronda; dentro de cada ronda, controlador a controlador.";
     } else {
-      els.methodInfo.textContent = "Ambos métodos usan los mismos " + run.controllers.length +
+      els.methodInfo.textContent = "Los cuatro métodos usan los mismos " + run.controllers.length +
         " controladores elegidos al azar, así que las diferencias se deben solo al algoritmo." + separationText();
     }
 
     if (isMethod) els.methodInfo.textContent += separationText();
 
-    els.roundNav.hidden = tab !== "rounds";
-    els.roundCard.hidden = tab !== "rounds";
-    if (tab === "rounds") renderRounds();
+    const withRounds = isRoundsTab();
+    state.pickedRound = 0;
+    els.roundNav.hidden = !withRounds;
+    els.roundCard.hidden = !withRounds;
+    if (withRounds) renderRounds();
 
     if (isMethod) {
       const res = current();
@@ -421,6 +452,10 @@
       renderTables(res, tab);
       updateStep();
     }
+  }
+
+  function isRoundsTab() {
+    return !!(METHODS[state.tab] && METHODS[state.tab].rounds);
   }
 
   function separationText() {
@@ -447,7 +482,7 @@
     els.stepSlider.value = shown;
     if (shown === 0) {
       setInfo(els.stepInfo, "", "Paso 0 de " + steps.length + ": controladores situados, ninguna BTS asignada.");
-    } else if (state.tab === "rounds" && roundAtEnd(shown)) {
+    } else if (isRoundsTab() && roundAtEnd(shown)) {
       const r = roundAtEnd(shown);
       const ends = roundEnds(res);
       const added = shown - (r === 1 ? 0 : ends[r - 2]);
@@ -459,11 +494,11 @@
     } else {
       const s = steps[shown - 1];
       setInfo(els.stepInfo, "",
-        (state.tab === "rounds" ? "Ronda <b>" + s.round + "</b> de " + state.run.rounds + " · " : "") +
+        (isRoundsTab() ? "Ronda <b>" + s.round + "</b> de " + state.run.rounds + " · " : "") +
         "Paso <b>" + shown + "</b> de " + steps.length + ": " +
         escapeHtml(state.bts[s.bts].id) + " → <b>C" + (s.controller + 1) + "</b> (" + fmtMeters(s.distance) + ")");
     }
-    if (state.tab === "rounds") highlightRound();
+    if (isRoundsTab()) highlightRound();
     draw();
   }
 
@@ -484,7 +519,7 @@
   // Si varias rondas acaban en el mismo paso (rondas en las que no se asigna nada),
   // se respeta la que se haya elegido con los botones; si no, la primera.
   function roundAtEnd(shown) {
-    const ends = roundEnds(state.run.results.rounds);
+    const ends = roundEnds(current());
     const picked = state.pickedRound;
     if (picked && ends[picked - 1] === shown) return picked;
     const r = ends.indexOf(shown);
@@ -493,19 +528,19 @@
 
   // Ronda a la que pertenece lo que se ve en el mapa (0 antes de empezar).
   function currentRound() {
-    const shown = state.shown.rounds;
-    return shown === 0 ? 0 : state.run.results.rounds.steps[shown - 1].round;
+    const shown = state.shown[state.tab];
+    return shown === 0 ? 0 : current().steps[shown - 1].round;
   }
 
   function showRound(r) {
     stopPlay();
     state.pickedRound = r;
-    setShown(r === 0 ? 0 : roundEnds(state.run.results.rounds)[r - 1]);
+    setShown(r === 0 ? 0 : roundEnds(current())[r - 1]);
   }
 
   function renderRounds() {
     const run = state.run;
-    const res = run.results.rounds;
+    const res = current();
     const ends = roundEnds(res);
 
     let nav = "<button type=\"button\" data-round=\"0\" aria-pressed=\"false\">Inicio</button>";
@@ -536,7 +571,7 @@
 
   // Marca el botón y la fila de la ronda que se ve en el mapa.
   function highlightRound() {
-    const shown = state.shown.rounds;
+    const shown = state.shown[state.tab];
     const atEnd = shown === 0 ? 0 : roundAtEnd(shown);
     const cur = currentRound();
     Array.prototype.forEach.call(els.roundNav.querySelectorAll("button"), function (b) {
@@ -672,7 +707,7 @@
       const steps = res.steps;
       // Enlaces BTS -> controlador de los pasos visibles. En el método por rondas,
       // los de rondas anteriores se dibujan más tenues que los de la ronda actual.
-      const lastRound = state.tab === "rounds" && shown > 0 ? steps[shown - 1].round : 0;
+      const lastRound = isRoundsTab() && shown > 0 ? steps[shown - 1].round : 0;
       ctx.lineWidth = 1.2;
       for (let k = 0; k < shown; k++) {
         const s = steps[k];
@@ -855,7 +890,7 @@
     });
     els.controllerTable.innerHTML = html + "</tbody>";
 
-    const withRound = method === "rounds";
+    const withRound = METHODS[method].rounds;
     const order = new Array(state.bts.length).fill(null);
     const roundOf = new Array(state.bts.length).fill(null);
     res.steps.forEach(function (s, k) { order[s.bts] = k + 1; roundOf[s.bts] = s.round; });
@@ -876,65 +911,59 @@
 
   function renderCompare() {
     const run = state.run;
-    const g = run.results.greedy;
-    const r = run.results.rounds;
-    const mg = metrics(g);
-    const mr = metrics(r);
+    const res = METHOD_KEYS.map(function (m) { return run.results[m]; });
+    const ms = res.map(metrics);
+    const base = run.results.greedy;
+    const changed = res.map(function (r) {
+      let n = 0;
+      r.assignment.forEach(function (c, i) { if (c !== base.assignment[i]) n++; });
+      return n;
+    });
 
-    // [etiqueta, valor greedy, valor rondas, formato, true si "menos es mejor" / false si "más es mejor" / null]
+    // [etiqueta, valores, formato, true si "menos es mejor" / false si "más es mejor" / null si no se compara]
     const rows = [
-      ["BTS asignadas", mg.assigned, mr.assigned, String, false],
-      ["BTS sin asignar", mg.unassigned, mr.unassigned, String, true],
-      ["Distancia total", mg.total, mr.total, fmtMeters, true],
-      ["Distancia media", mg.mean, mr.mean, fmtMeters, true],
-      ["Distancia máxima", mg.max, mr.max, fmtMeters, true],
-      ["Desviación típica de la distancia", mg.std, mr.std, fmtMeters, true],
-      ["BTS por controlador (mín. – máx.)", null, null, null, null],
+      ["BTS asignadas", ms.map(function (m) { return m.assigned; }), String, false],
+      ["BTS sin asignar", ms.map(function (m) { return m.unassigned; }), String, true],
+      ["Distancia total", ms.map(function (m) { return m.total; }), fmtMeters, true],
+      ["Distancia media", ms.map(function (m) { return m.mean; }), fmtMeters, true],
+      ["Distancia máxima", ms.map(function (m) { return m.max; }), fmtMeters, true],
+      ["Desviación típica de la distancia", ms.map(function (m) { return m.std; }), fmtMeters, true],
+      ["BTS por controlador (mín. – máx.)", ms.map(function (m) { return m.minLoad + " – " + m.maxLoad; }), String, null],
+      ["BTS con distinto controlador que el Greedy ordenado", changed, String, null],
     ];
 
-    let html = "<thead><tr><th>Indicador</th><th class=\"num\">" + METHODS.greedy.label + "</th><th class=\"num\">" +
-      METHODS.rounds.label + " (" + run.rounds + " rondas)</th><th class=\"num\">Diferencia (rondas − clásico)</th></tr></thead><tbody>";
+    let html = "<thead><tr><th>Indicador</th>" + METHOD_KEYS.map(function (m) {
+      return "<th class=\"num\" title=\"" + METHODS[m].label + "\">" + METHODS[m].short +
+        (METHODS[m].rounds ? "<br>(" + run.rounds + " rondas)" : "") + "</th>";
+    }).join("") + "</tr></thead><tbody>";
     rows.forEach(function (row) {
-      if (row[3] === null) {
-        html += "<tr><td>" + row[0] + "</td><td class=\"num\">" + mg.minLoad + " – " + mg.maxLoad + "</td>" +
-          "<td class=\"num\">" + mr.minLoad + " – " + mr.maxLoad + "</td><td class=\"num\">—</td></tr>";
-        return;
+      const vals = row[1], fmt = row[2], lessIsBetter = row[3];
+      let best = null;
+      if (lessIsBetter !== null) {
+        best = lessIsBetter ? Math.min.apply(null, vals) : Math.max.apply(null, vals);
+        // Si todos empatan no se marca ninguno.
+        if (vals.every(function (v) { return Math.abs(v - best) <= 1e-9; })) best = null;
       }
-      const a = row[1], b = row[2], fmt = row[3], lessIsBetter = row[4];
-      const diff = b - a;
-      const eps = 1e-9;
-      let clsA = "", clsB = "";
-      if (Math.abs(diff) > eps) {
-        const roundsBetter = lessIsBetter ? diff < 0 : diff > 0;
-        clsA = roundsBetter ? "" : " better";
-        clsB = roundsBetter ? " better" : "";
-      }
-      const diffText = Math.abs(diff) <= eps ? "=" : (diff > 0 ? "+" : "−") + fmt(Math.abs(diff));
-      html += "<tr><td>" + row[0] + "</td><td class=\"num" + clsA + "\">" + fmt(a) + "</td>" +
-        "<td class=\"num" + clsB + "\">" + fmt(b) + "</td><td class=\"num\">" + diffText + "</td></tr>";
+      html += "<tr><td>" + row[0] + "</td>" + vals.map(function (v, k) {
+        const isBest = best !== null && Math.abs(v - best) <= 1e-9;
+        const text = row[0].indexOf("distinto controlador") !== -1 && k === 0 ? "—" : fmt(v);
+        return "<td class=\"num" + (isBest ? " better" : "") + "\">" + text + "</td>";
+      }).join("") + "</tr>";
     });
     els.compareTable.innerHTML = html + "</tbody>";
+    els.compareNote.textContent = "En verde, el método o métodos con mejor valor en cada indicador.";
 
-    let changed = 0;
-    g.assignment.forEach(function (c, i) { if (c !== r.assignment[i]) changed++; });
-    els.compareNote.textContent = changed === 0
-      ? "Los dos métodos producen exactamente la misma asignación."
-      : changed + " de " + state.bts.length + " BTS (" + fmtNum((100 * changed) / state.bts.length, 0) +
-        " %) tienen un controlador distinto en cada método. En verde, el método con mejor valor en cada indicador.";
-
-    const sg = controllerSummary(g);
-    const sr = controllerSummary(r);
+    const sums = res.map(controllerSummary);
     html = "<thead><tr><th>Controlador</th><th>Emplazamiento</th>" +
-      "<th class=\"num\">BTS clásico</th><th class=\"num\">BTS rondas</th>" +
-      "<th class=\"num\">Dist. media clásico</th><th class=\"num\">Dist. media rondas</th>" +
-      "<th class=\"num\">Dist. máx. clásico</th><th class=\"num\">Dist. máx. rondas</th></tr></thead><tbody>";
-    sg.forEach(function (a, c) {
-      const b = sr[c];
+      METHOD_KEYS.map(function (m) { return "<th class=\"num\">BTS<br>" + METHODS[m].short + "</th>"; }).join("") +
+      METHOD_KEYS.map(function (m) { return "<th class=\"num\">Dist. media<br>" + METHODS[m].short + "</th>"; }).join("") +
+      "</tr></thead><tbody>";
+    sums[0].forEach(function (a, c) {
       html += "<tr><td>" + swatch(run.colors[c]) + "C" + (c + 1) + "</td><td>" + escapeHtml(a.site.id) + "</td>" +
-        "<td class=\"num\">" + a.load + "</td><td class=\"num\">" + b.load + "</td>" +
-        "<td class=\"num\">" + fmtMeters(a.load ? a.total / a.load : 0) + "</td>" +
-        "<td class=\"num\">" + fmtMeters(b.load ? b.total / b.load : 0) + "</td>" +
-        "<td class=\"num\">" + fmtMeters(a.max) + "</td><td class=\"num\">" + fmtMeters(b.max) + "</td></tr>";
+        sums.map(function (sm) { return "<td class=\"num\">" + sm[c].load + "</td>"; }).join("") +
+        sums.map(function (sm) {
+          return "<td class=\"num\">" + fmtMeters(sm[c].load ? sm[c].total / sm[c].load : 0) + "</td>";
+        }).join("") + "</tr>";
     });
     els.compareCtrlTable.innerHTML = html + "</tbody>";
   }
@@ -942,53 +971,56 @@
   function exportResults() {
     const run = state.run;
     const round2 = function (v) { return v === null ? null : Math.round(v * 100) / 100; };
-    const g = run.results.greedy;
-    const r = run.results.rounds;
+    const ctrlName = function (c) { return c === -1 ? "Sin asignar" : "C" + (c + 1); };
     const info = {};
-    ["greedy", "rounds"].forEach(function (m) {
+    METHOD_KEYS.forEach(function (m) {
       const order = new Array(state.bts.length).fill(null);
       const rnd = new Array(state.bts.length).fill(null);
       run.results[m].steps.forEach(function (s, k) { order[s.bts] = k + 1; rnd[s.bts] = s.round; });
-      info[m] = { order: order, round: rnd };
+      info[m] = { order: order, round: rnd, summary: controllerSummary(run.results[m]), metrics: metrics(run.results[m]) };
     });
-    const ctrlName = function (c) { return c === -1 ? "Sin asignar" : "C" + (c + 1); };
 
     const assignRows = state.bts.map(function (b, i) {
-      return {
-        "Id BTS": b.id, "X (m)": b.x, "Y (m)": b.y,
-        "Controlador (clásico)": ctrlName(g.assignment[i]),
-        "Distancia clásico (m)": round2(g.distances[i]),
-        "Orden clásico": info.greedy.order[i],
-        "Controlador (rondas)": ctrlName(r.assignment[i]),
-        "Distancia rondas (m)": round2(r.distances[i]),
-        "Ronda": info.rounds.round[i],
-        "Orden rondas": info.rounds.order[i],
-      };
+      const row = { "Id BTS": b.id, "X (m)": b.x, "Y (m)": b.y };
+      METHOD_KEYS.forEach(function (m) {
+        const res = run.results[m], name = METHODS[m].short;
+        row["Controlador (" + name + ")"] = ctrlName(res.assignment[i]);
+        row["Distancia " + name + " (m)"] = round2(res.distances[i]);
+        if (METHODS[m].rounds) row["Ronda " + name] = info[m].round[i];
+        row["Orden " + name] = info[m].order[i];
+      });
+      return row;
     });
-    const sg = controllerSummary(g);
-    const sr = controllerSummary(r);
-    const ctrlRows = sg.map(function (a, c) {
-      const b = sr[c];
-      return {
-        "Controlador": "C" + (c + 1), "Id BTS emplazamiento": a.site.id,
-        "X (m)": a.site.x, "Y (m)": a.site.y, "Capacidad": run.capacity,
-        "BTS clásico": a.load, "Dist. total clásico (m)": round2(a.total),
-        "Dist. media clásico (m)": round2(a.load ? a.total / a.load : 0), "Dist. máx. clásico (m)": round2(a.max),
-        "BTS rondas": b.load, "Dist. total rondas (m)": round2(b.total),
-        "Dist. media rondas (m)": round2(b.load ? b.total / b.load : 0), "Dist. máx. rondas (m)": round2(b.max),
+    const ctrlRows = run.controllers.map(function (idx, c) {
+      const site = state.bts[idx];
+      const row = {
+        "Controlador": "C" + (c + 1), "Id BTS emplazamiento": site.id,
+        "X (m)": site.x, "Y (m)": site.y, "Capacidad": run.capacity,
       };
+      METHOD_KEYS.forEach(function (m) {
+        const sm = info[m].summary[c], name = METHODS[m].short;
+        row["BTS " + name] = sm.load;
+        row["Dist. total " + name + " (m)"] = round2(sm.total);
+        row["Dist. media " + name + " (m)"] = round2(sm.load ? sm.total / sm.load : 0);
+        row["Dist. máx. " + name + " (m)"] = round2(sm.max);
+      });
+      return row;
     });
-    const mg = metrics(g), mr = metrics(r);
-    const cmpRows = [
-      ["BTS asignadas", mg.assigned, mr.assigned],
-      ["BTS sin asignar", mg.unassigned, mr.unassigned],
-      ["Distancia total (m)", round2(mg.total), round2(mr.total)],
-      ["Distancia media (m)", round2(mg.mean), round2(mr.mean)],
-      ["Distancia máxima (m)", round2(mg.max), round2(mr.max)],
-      ["Desviación típica de la distancia (m)", round2(mg.std), round2(mr.std)],
-      ["Mín. BTS por controlador", mg.minLoad, mr.minLoad],
-      ["Máx. BTS por controlador", mg.maxLoad, mr.maxLoad],
-    ].map(function (x) { return { "Indicador": x[0], "Greedy clásico": x[1], "Greedy por rondas": x[2] }; });
+    const cmpDefs = [
+      ["BTS asignadas", function (x) { return x.assigned; }],
+      ["BTS sin asignar", function (x) { return x.unassigned; }],
+      ["Distancia total (m)", function (x) { return round2(x.total); }],
+      ["Distancia media (m)", function (x) { return round2(x.mean); }],
+      ["Distancia máxima (m)", function (x) { return round2(x.max); }],
+      ["Desviación típica de la distancia (m)", function (x) { return round2(x.std); }],
+      ["Mín. BTS por controlador", function (x) { return x.minLoad; }],
+      ["Máx. BTS por controlador", function (x) { return x.maxLoad; }],
+    ];
+    const cmpRows = cmpDefs.map(function (d) {
+      const row = { "Indicador": d[0] };
+      METHOD_KEYS.forEach(function (m) { row[METHODS[m].label] = d[1](info[m].metrics); });
+      return row;
+    });
     const params = [
       { "Parámetro": "Fichero", "Valor": state.fileName },
       { "Parámetro": "Número de BTS", "Valor": state.bts.length },
@@ -997,7 +1029,7 @@
       { "Parámetro": "Distancia mínima exigida entre controladores (m)", "Valor": run.minDist },
       { "Parámetro": "Distancia mínima entre los controladores elegidos (m)", "Valor": round2(run.minSeparation) },
       { "Parámetro": "Número de rondas", "Valor": run.rounds },
-      { "Parámetro": "Límites acumulados por ronda", "Valor": r.limits.join(", ") },
+      { "Parámetro": "Límites acumulados por ronda", "Valor": A.roundLimits(run.capacity, run.rounds).join(", ") },
       { "Parámetro": "Semilla", "Valor": run.seed || "(aleatoria)" },
       { "Parámetro": "Selección de controladores nº", "Valor": run.selection },
     ];
