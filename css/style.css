@@ -131,6 +131,15 @@ button.primary {
   letter-spacing: .08em;
   padding: 10px;
 }
+button.secondary {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 9px;
+}
 button.link {
   border: none;
   background: none;

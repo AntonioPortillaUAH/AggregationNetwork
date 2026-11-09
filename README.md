@@ -17,6 +17,14 @@ La aplicación es una página web estática: no necesita instalación ni servido
    (útil para que todos los alumnos obtengan el mismo resultado).
 5. Pulsar **RUN**.
 
+Los controladores se eligen al azar en el primer **RUN** y **se mantienen fijos** en
+las siguientes ejecuciones, de modo que se pueden cambiar la capacidad o el número de
+rondas y comparar resultados con los mismos controladores. Para sortear otros, se
+pulsa **Nueva selección de controladores**. También se eligen nuevos automáticamente
+si cambian el número de controladores, la distancia mínima o la semilla. Con semilla,
+cada selección está numerada y es reproducible: la selección nº *k* con la semilla *S*
+es siempre la misma.
+
 ### Formato del fichero de entrada
 
 Primera hoja del libro, tres columnas (la fila de cabecera es opcional):

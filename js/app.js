@@ -16,6 +16,8 @@
     seed: $("seed"),
     capacityInfo: $("capacityInfo"),
     runBtn: $("runBtn"),
+    newSelBtn: $("newSelBtn"),
+    selectionInfo: $("selectionInfo"),
     stepCard: $("stepCard"),
     stepHint: $("stepHint"),
     stepBack: $("stepBack"),
@@ -53,7 +55,12 @@
   const state = {
     bts: [],
     fileName: "",
-    run: null,      // { controllers, capacity, rounds, minDist, minSeparation, seed, colors, results: {greedy, rounds} }
+    // Controladores elegidos. Se mantienen entre ejecuciones de RUN para poder
+    // comparar resultados; solo cambian con "Nueva selección de controladores"
+    // o si cambian el número de controladores, la distancia mínima o la semilla.
+    selection: null, // { controllers, minSeparation, count, minDist, seed, number }
+    selectionCount: 0, // selecciones hechas con la semilla actual
+    run: null,      // { controllers, capacity, rounds, minDist, minSeparation, seed, selection, colors, results: {greedy, rounds} }
     tab: "greedy",  // "greedy" | "rounds" | "compare"
     shown: { greedy: 0, rounds: 0 }, // pasos visibles en el mapa de cada método
     timer: null,
@@ -131,6 +138,8 @@
     stopPlay();
     state.bts = bts;
     state.fileName = sourceName;
+    state.selection = null;
+    state.selectionCount = 0;
     state.run = null;
     state.shown = { greedy: 0, rounds: 0 };
     els.tabsWrap.hidden = true;
@@ -210,6 +219,8 @@
     else if (total && n > total) problem = "Hay más controladores (" + n + ") que BTS (" + total + ").";
 
     els.runBtn.disabled = !!problem || total === 0;
+    els.newSelBtn.disabled = els.runBtn.disabled;
+    updateSelectionInfo();
 
     if (problem) {
       setInfo(els.capacityInfo, "error", problem);
@@ -255,38 +266,94 @@
     draw();
   }
 
-  function run() {
-    stopPlay();
+  // Motivo por el que la selección actual no sirve para los parámetros actuales ("" si sirve).
+  function selectionStaleReason() {
+    const sel = state.selection;
+    if (!sel) return "";
+    if (sel.count !== readInt(els.numControllers)) return "ha cambiado el número de controladores";
+    if (sel.minDist !== readMinDist()) return "ha cambiado la distancia mínima entre controladores";
+    if (sel.seed !== els.seed.value.trim()) return "ha cambiado la semilla";
+    return "";
+  }
+
+  function updateSelectionInfo() {
+    const sel = state.selection;
+    if (!sel) {
+      setInfo(els.selectionInfo, "", "");
+      return;
+    }
+    const stale = selectionStaleReason();
+    if (stale) {
+      setInfo(els.selectionInfo, "warn",
+        "Al pulsar RUN se elegirán nuevos controladores porque " + stale + ".");
+      return;
+    }
+    const ids = sel.controllers.map(function (idx, c) { return "C" + (c + 1) + " = " + escapeHtml(state.bts[idx].id); });
+    setInfo(els.selectionInfo, "",
+      "<b>Controladores fijados</b> (selección nº " + sel.number + (sel.seed ? ", semilla " + escapeHtml(sel.seed) : "") + "): " +
+      (ids.length <= 12 ? ids.join(", ") : ids.slice(0, 12).join(", ") + ", …") +
+      ". RUN los mantiene; para cambiarlos pulsa «Nueva selección de controladores».");
+  }
+
+  // Elige nuevos controladores. Devuelve false (y muestra el motivo) si no hay solución.
+  function newSelection() {
     const n = readInt(els.numControllers);
+    const minDist = readMinDist();
+    const seed = els.seed.value.trim();
+    if (!state.selection || state.selection.seed !== seed) state.selectionCount = 0;
+    const number = state.selectionCount + 1;
+    // Con semilla, la selección nº k es reproducible: se deriva de la semilla y de k.
+    const rng = seed === "" ? Math.random : A.createRng(number === 1 ? seed : seed + "#" + number);
+    const sel = A.selectControllersWithMinDistance(state.bts, n, minDist, rng);
+    if (!sel.controllers) {
+      state.selection = null;
+      clearRun();
+      setInfo(els.capacityInfo, "error",
+        "<b>No se han ejecutado los algoritmos.</b> " +
+        (sel.exhaustive
+          ? "No existe ninguna forma de elegir " + n + " controladores entre estas BTS con una distancia mínima de " +
+            fmtMeters(minDist) + " entre ellos" +
+            (sel.best === n - 1 ? ": como máximo caben " + sel.best + "." : " (el mejor reparto encontrado coloca " + sel.best + ").")
+          : "No se ha encontrado ninguna forma de elegir " + n + " controladores con una distancia mínima de " +
+            fmtMeters(minDist) + " (la búsqueda se ha detenido por ser demasiado larga; el mejor intento coloca " +
+            sel.best + "). Es probable que no exista.") +
+        " Reduce la distancia mínima o el número de controladores.");
+      updateSelectionInfo();
+      return false;
+    }
+    state.selectionCount = number;
+    state.selection = {
+      controllers: sel.controllers,
+      minSeparation: sel.minSeparation,
+      count: n,
+      minDist: minDist,
+      seed: seed,
+      number: number,
+    };
+    return true;
+  }
+
+  // Ejecuta los dos Greedy. Reutiliza los controladores ya elegidos salvo que se
+  // pida una selección nueva o la actual no valga para los parámetros actuales.
+  function run(forceNewSelection) {
+    stopPlay();
     const cap = readInt(els.capacity);
     const rounds = readInt(els.numRounds);
-    const minDist = readMinDist();
     try {
-      const rng = A.createRng(els.seed.value);
-      const sel = A.selectControllersWithMinDistance(state.bts, n, minDist, rng);
-      if (!sel.controllers) {
-        clearRun();
-        setInfo(els.capacityInfo, "error",
-          "<b>No se han ejecutado los algoritmos.</b> " +
-          (sel.exhaustive
-            ? "No existe ninguna forma de elegir " + n + " controladores entre estas BTS con una distancia mínima de " +
-              fmtMeters(minDist) + " entre ellos" +
-              (sel.best === n - 1 ? ": como máximo caben " + sel.best + "." : " (el mejor reparto encontrado coloca " + sel.best + ").")
-            : "No se ha encontrado ninguna forma de elegir " + n + " controladores con una distancia mínima de " +
-              fmtMeters(minDist) + " (la búsqueda se ha detenido por ser demasiado larga; el mejor intento coloca " +
-              sel.best + "). Es probable que no exista.") +
-          " Reduce la distancia mínima o el número de controladores.");
-        return;
+      if (forceNewSelection === true || !state.selection || selectionStaleReason()) {
+        if (!newSelection()) return;
       }
+      const sel = state.selection;
       const controllers = sel.controllers;
       state.run = {
         controllers: controllers,
         capacity: cap,
         rounds: rounds,
-        minDist: minDist,
+        minDist: sel.minDist,
         minSeparation: sel.minSeparation,
-        seed: els.seed.value,
-        colors: controllerColors(n),
+        seed: sel.seed,
+        selection: sel.number,
+        colors: controllerColors(controllers.length),
         results: {
           greedy: A.greedyAssign(state.bts, controllers, cap),
           rounds: A.greedyRoundsAssign(state.bts, controllers, cap, rounds),
@@ -823,6 +890,7 @@
       { "Parámetro": "Número de rondas", "Valor": run.rounds },
       { "Parámetro": "Límites acumulados por ronda", "Valor": r.limits.join(", ") },
       { "Parámetro": "Semilla", "Valor": run.seed || "(aleatoria)" },
+      { "Parámetro": "Selección de controladores nº", "Valor": run.selection },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -846,7 +914,9 @@
   els.capacity.addEventListener("input", updateCapacityInfo);
   els.numRounds.addEventListener("input", updateCapacityInfo);
   els.minDist.addEventListener("input", updateCapacityInfo);
-  els.runBtn.addEventListener("click", run);
+  els.runBtn.addEventListener("click", function () { run(false); });
+  els.newSelBtn.addEventListener("click", function () { run(true); });
+  els.seed.addEventListener("input", updateSelectionInfo);
   els.tabButtons.forEach(function (b) {
     b.addEventListener("click", function () { if (state.run) showTab(b.dataset.tab); });
   });
