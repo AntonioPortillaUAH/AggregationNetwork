@@ -11,16 +11,22 @@
     fileInfo: $("fileInfo"),
     numControllers: $("numControllers"),
     capacity: $("capacity"),
+    numRounds: $("numRounds"),
     seed: $("seed"),
     capacityInfo: $("capacityInfo"),
     runBtn: $("runBtn"),
     stepCard: $("stepCard"),
+    stepHint: $("stepHint"),
     stepBack: $("stepBack"),
     stepFwd: $("stepFwd"),
     stepAll: $("stepAll"),
     playBtn: $("playBtn"),
     stepSlider: $("stepSlider"),
     stepInfo: $("stepInfo"),
+    tabsWrap: $("tabsWrap"),
+    tabButtons: Array.prototype.slice.call(document.querySelectorAll("[data-tab]")),
+    methodInfo: $("methodInfo"),
+    mapCard: $("mapCard"),
     canvas: $("map"),
     tooltip: $("tooltip"),
     legend: $("legend"),
@@ -29,15 +35,28 @@
     controllerTable: $("controllerTable"),
     assignmentTable: $("assignmentTable"),
     exportBtn: $("exportBtn"),
+    exportBtn2: $("exportBtn2"),
+    compare: $("compare"),
+    compareTable: $("compareTable"),
+    compareNote: $("compareNote"),
+    compareCtrlTable: $("compareCtrlTable"),
+  };
+
+  // Métodos de asignación. Los dos usan los mismos controladores para que la
+  // comparación sea justa.
+  const METHODS = {
+    greedy: { label: "Greedy clásico", short: "Greedy" },
+    rounds: { label: "Greedy por rondas", short: "Rondas" },
   };
 
   const state = {
     bts: [],
     fileName: "",
-    run: null,   // { controllers, capacity, result, colors }
-    shown: 0,    // número de pasos del algoritmo visibles en el mapa
+    run: null,      // { controllers, capacity, rounds, seed, colors, results: {greedy, rounds} }
+    tab: "greedy",  // "greedy" | "rounds" | "compare"
+    shown: { greedy: 0, rounds: 0 }, // pasos visibles en el mapa de cada método
     timer: null,
-    view: null,  // transformación mundo -> pantalla del último dibujo
+    view: null,     // transformación mundo -> pantalla del último dibujo
   };
 
   // ---------------------------------------------------------------- utilidades
@@ -59,7 +78,7 @@
 
   function fmtMeters(m) {
     if (m === null || m === undefined) return "—";
-    return m >= 1000
+    return Math.abs(m) >= 1000
       ? (m / 1000).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " km"
       : m.toLocaleString("es-ES", { maximumFractionDigits: 1 }) + " m";
   }
@@ -88,6 +107,15 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
+  function swatch(color) {
+    return "<span class=\"swatch\" style=\"background:" + color + "\"></span>";
+  }
+
+  // Resultado del método de la pestaña activa (null en la pestaña de comparación).
+  function current() {
+    return state.run && METHODS[state.tab] ? state.run.results[state.tab] : null;
+  }
+
   // ------------------------------------------------------------ carga de datos
 
   function loadBts(bts, sourceName, errors) {
@@ -95,8 +123,11 @@
     state.bts = bts;
     state.fileName = sourceName;
     state.run = null;
-    state.shown = 0;
+    state.shown = { greedy: 0, rounds: 0 };
+    els.tabsWrap.hidden = true;
     els.results.hidden = true;
+    els.compare.hidden = true;
+    els.mapCard.hidden = false;
     els.stepCard.hidden = true;
     els.legend.innerHTML = "";
 
@@ -158,28 +189,41 @@
   function updateCapacityInfo() {
     const n = readInt(els.numControllers);
     const cap = readInt(els.capacity);
+    const rounds = readInt(els.numRounds);
     const total = state.bts.length;
     let problem = "";
 
     if (!(n >= 1)) problem = "El número de controladores debe ser un entero ≥ 1.";
     else if (!(cap >= 1)) problem = "El máximo de BTS por controlador debe ser un entero ≥ 1.";
+    else if (!(rounds >= 1)) problem = "El número de rondas debe ser un entero ≥ 1.";
+    else if (rounds > cap) problem = "El número de rondas (" + rounds + ") no puede superar el máximo de BTS por controlador (" + cap + ").";
     else if (total && n > total) problem = "Hay más controladores (" + n + ") que BTS (" + total + ").";
 
     els.runBtn.disabled = !!problem || total === 0;
 
     if (problem) {
       setInfo(els.capacityInfo, "error", problem);
-    } else if (total === 0) {
-      setInfo(els.capacityInfo, "", "");
-    } else if (n * cap < total) {
-      setInfo(els.capacityInfo, "warn",
-        "Capacidad total " + n + " × " + cap + " = <b>" + n * cap + "</b> &lt; " + total +
-        " BTS: quedarán <b>" + (total - n * cap) + "</b> BTS sin asignar.");
-    } else {
-      setInfo(els.capacityInfo, "ok",
-        "Capacidad total " + n + " × " + cap + " = <b>" + n * cap + "</b> ≥ " + total +
-        " BTS (ocupación media " + fmtNum((100 * total) / (n * cap), 0) + " %).");
+      return;
     }
+    if (total === 0) {
+      setInfo(els.capacityInfo, "", "");
+      return;
+    }
+
+    let html;
+    let kind = "ok";
+    if (n * cap < total) {
+      kind = "warn";
+      html = "Capacidad total " + n + " × " + cap + " = <b>" + n * cap + "</b> &lt; " + total +
+        " BTS: quedarán <b>" + (total - n * cap) + "</b> BTS sin asignar.";
+    } else {
+      html = "Capacidad total " + n + " × " + cap + " = <b>" + n * cap + "</b> ≥ " + total +
+        " BTS (ocupación media " + fmtNum((100 * total) / (n * cap), 0) + " %).";
+    }
+    const limits = A.roundLimits(cap, rounds);
+    html += "<br>Rondas: hasta " + fmtNum(cap / rounds, 1) + " BTS por controlador y ronda " +
+      "(límites acumulados: " + (limits.length <= 10 ? limits.join(", ") : limits.slice(0, 9).join(", ") + ", …, " + cap) + ").";
+    setInfo(els.capacityInfo, kind, html);
   }
 
   // ------------------------------------------------------------------ ejecución
@@ -188,43 +232,95 @@
     stopPlay();
     const n = readInt(els.numControllers);
     const cap = readInt(els.capacity);
+    const rounds = readInt(els.numRounds);
     try {
       const rng = A.createRng(els.seed.value);
       const controllers = A.selectControllers(state.bts.length, n, rng);
-      const result = A.greedyAssign(state.bts, controllers, cap);
-      state.run = { controllers: controllers, capacity: cap, result: result, colors: controllerColors(n) };
-      state.shown = result.steps.length;
+      state.run = {
+        controllers: controllers,
+        capacity: cap,
+        rounds: rounds,
+        seed: els.seed.value,
+        colors: controllerColors(n),
+        results: {
+          greedy: A.greedyAssign(state.bts, controllers, cap),
+          rounds: A.greedyRoundsAssign(state.bts, controllers, cap, rounds),
+        },
+      };
+      state.shown = {
+        greedy: state.run.results.greedy.steps.length,
+        rounds: state.run.results.rounds.steps.length,
+      };
     } catch (err) {
       setInfo(els.capacityInfo, "error", escapeHtml(err.message));
       return;
     }
-    els.stepSlider.max = state.run.result.steps.length;
-    els.stepCard.hidden = false;
-    els.results.hidden = false;
-    renderLegend();
-    renderStats();
-    renderTables();
-    updateStep();
+    els.tabsWrap.hidden = false;
+    renderCompare();
+    showTab(state.tab);
+  }
+
+  // ----------------------------------------------------------------- pestañas
+
+  function showTab(tab) {
+    stopPlay();
+    state.tab = tab;
+    els.tabButtons.forEach(function (b) {
+      b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false");
+    });
+    const run = state.run;
+    const isMethod = !!METHODS[tab];
+    els.mapCard.hidden = !isMethod;
+    els.results.hidden = !isMethod;
+    els.stepCard.hidden = !isMethod;
+    els.compare.hidden = isMethod;
+
+    if (tab === "greedy") {
+      els.methodInfo.textContent = "Recorre todas las parejas (BTS, controlador) de menor a mayor distancia y asigna " +
+        "la BTS si aún está libre y el controlador no está lleno (máx. " + run.capacity + " BTS).";
+      els.stepHint.textContent = "Recorre las asignaciones en el orden en que las realiza el algoritmo (de menor a mayor distancia).";
+    } else if (tab === "rounds") {
+      els.methodInfo.textContent = "Igual que el Greedy clásico, pero en " + run.rounds + " rondas: en cada ronda cada " +
+        "controlador solo puede recibir unas " + fmtNum(run.capacity / run.rounds, 1) + " BTS más (límites acumulados " +
+        run.results.rounds.limits.join(", ") + ").";
+      els.stepHint.textContent = "Recorre las asignaciones ronda a ronda; dentro de cada ronda, de menor a mayor distancia.";
+    } else {
+      els.methodInfo.textContent = "Ambos métodos usan los mismos " + run.controllers.length +
+        " controladores elegidos al azar, así que las diferencias se deben solo al algoritmo.";
+    }
+
+    if (isMethod) {
+      const res = current();
+      els.stepSlider.max = res.steps.length;
+      renderLegend(res);
+      renderStats(res);
+      renderTables(res, tab);
+      updateStep();
+    }
   }
 
   // ------------------------------------------------------------- paso a paso
 
   function setShown(k) {
-    const max = state.run ? state.run.result.steps.length : 0;
-    state.shown = Math.max(0, Math.min(max, k));
+    const res = current();
+    if (!res) return;
+    state.shown[state.tab] = Math.max(0, Math.min(res.steps.length, k));
     updateStep();
   }
 
   function updateStep() {
-    if (!state.run) return;
-    const steps = state.run.result.steps;
-    els.stepSlider.value = state.shown;
-    if (state.shown === 0) {
+    const res = current();
+    if (!res) return;
+    const steps = res.steps;
+    const shown = state.shown[state.tab];
+    els.stepSlider.value = shown;
+    if (shown === 0) {
       setInfo(els.stepInfo, "", "Paso 0 de " + steps.length + ": controladores situados, ninguna BTS asignada.");
     } else {
-      const s = steps[state.shown - 1];
+      const s = steps[shown - 1];
       setInfo(els.stepInfo, "",
-        "Paso <b>" + state.shown + "</b> de " + steps.length + ": " +
+        (state.tab === "rounds" ? "Ronda <b>" + s.round + "</b> de " + state.run.rounds + " · " : "") +
+        "Paso <b>" + shown + "</b> de " + steps.length + ": " +
         escapeHtml(state.bts[s.bts].id) + " → <b>C" + (s.controller + 1) + "</b> (" + fmtMeters(s.distance) + ")");
     }
     draw();
@@ -238,13 +334,15 @@
 
   function togglePlay() {
     if (state.timer) { stopPlay(); return; }
-    const total = state.run.result.steps.length;
-    if (state.shown >= total) setShown(0);
+    const res = current();
+    if (!res) return;
+    const total = res.steps.length;
+    if (state.shown[state.tab] >= total) setShown(0);
     const delay = Math.max(30, Math.min(400, 10000 / Math.max(1, total)));
     els.playBtn.textContent = "❚❚ Pausa";
     state.timer = setInterval(function () {
-      if (state.shown >= total) { stopPlay(); return; }
-      setShown(state.shown + 1);
+      if (state.shown[state.tab] >= total) { stopPlay(); return; }
+      setShown(state.shown[state.tab] + 1);
     }, delay);
   }
 
@@ -259,6 +357,7 @@
 
   function draw() {
     const canvas = els.canvas;
+    if (els.mapCard.hidden) return;
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
@@ -344,13 +443,15 @@
     ctx.clip();
 
     const run = state.run;
+    const res = current();
+    const shown = res ? state.shown[state.tab] : 0;
     const owner = new Array(state.bts.length).fill(-1);
-    if (run) {
-      const steps = run.result.steps;
+    if (res) {
+      const steps = res.steps;
       // Enlaces BTS -> controlador de los pasos visibles.
       ctx.globalAlpha = 0.55;
       ctx.lineWidth = 1.2;
-      for (let k = 0; k < state.shown; k++) {
+      for (let k = 0; k < shown; k++) {
         const s = steps[k];
         owner[s.bts] = s.controller;
         const b = state.bts[s.bts];
@@ -360,8 +461,8 @@
       }
       ctx.globalAlpha = 1;
       // Última asignación resaltada.
-      if (state.shown > 0 && state.shown < steps.length) {
-        const s = steps[state.shown - 1];
+      if (shown > 0 && shown < steps.length) {
+        const s = steps[shown - 1];
         const b = state.bts[s.bts];
         const c = state.bts[run.controllers[s.controller]];
         ctx.strokeStyle = run.colors[s.controller];
@@ -374,7 +475,7 @@
     }
 
     // BTS.
-    const finished = run && state.shown === run.result.steps.length;
+    const finished = res && shown === res.steps.length;
     state.bts.forEach(function (b, i) {
       const x = sx(b.x), y = sy(b.y);
       if (finished && owner[i] === -1) {
@@ -425,14 +526,14 @@
 
     const b = state.bts[best];
     let html = "<b>" + escapeHtml(b.id) + "</b><br>X = " + fmtNum(b.x) + " m, Y = " + fmtNum(b.y) + " m";
-    const run = state.run;
-    if (run) {
-      const c = run.controllers.indexOf(best);
+    const res = current();
+    if (res) {
+      const c = state.run.controllers.indexOf(best);
       if (c !== -1) html += "<br>Emplazamiento del controlador <b>C" + (c + 1) + "</b>";
-      const a = run.result.assignment[best];
+      const a = res.assignment[best];
       html += a === -1
         ? "<br>Sin asignar"
-        : "<br>Asignada a <b>C" + (a + 1) + "</b> (" + fmtMeters(run.result.distances[best]) + ")";
+        : "<br>Asignada a <b>C" + (a + 1) + "</b> (" + fmtMeters(res.distances[best]) + ")";
     }
     els.tooltip.innerHTML = html;
     els.tooltip.hidden = false;
@@ -444,55 +545,74 @@
 
   // --------------------------------------------------------------- resultados
 
-  function controllerSummary() {
+  function controllerSummary(res) {
     const run = state.run;
     const rows = run.controllers.map(function (idx, c) {
-      return { c: c, site: state.bts[idx], load: run.result.loads[c], total: 0, max: 0 };
+      return { c: c, site: state.bts[idx], load: res.loads[c], total: 0, max: 0 };
     });
-    run.result.assignment.forEach(function (c, i) {
+    res.assignment.forEach(function (c, i) {
       if (c === -1) return;
-      const d = run.result.distances[i];
+      const d = res.distances[i];
       rows[c].total += d;
       rows[c].max = Math.max(rows[c].max, d);
     });
     return rows;
   }
 
-  function renderLegend() {
+  // Indicadores globales de un resultado.
+  function metrics(res) {
+    const assigned = state.bts.length - res.unassigned.length;
+    let maxD = 0, sq = 0;
+    const mean = assigned ? res.totalDistance / assigned : 0;
+    res.distances.forEach(function (d) {
+      if (d === null) return;
+      maxD = Math.max(maxD, d);
+      sq += (d - mean) * (d - mean);
+    });
+    return {
+      assigned: assigned,
+      unassigned: res.unassigned.length,
+      total: res.totalDistance,
+      mean: mean,
+      max: maxD,
+      std: assigned ? Math.sqrt(sq / assigned) : 0,
+      minLoad: Math.min.apply(null, res.loads),
+      maxLoad: Math.max.apply(null, res.loads),
+    };
+  }
+
+  function renderLegend(res) {
     const run = state.run;
     let html = run.colors.map(function (col, c) {
       return "<span><i style=\"background:" + col + "\"></i>C" + (c + 1) + "</span>";
     }).join("");
-    html += "<span>■ controlador · ● BTS" + (run.result.unassigned.length ? " · ✕ sin asignar" : "") + "</span>";
+    html += "<span>■ controlador · ● BTS" + (res.unassigned.length ? " · ✕ sin asignar" : "") + "</span>";
     els.legend.innerHTML = html;
   }
 
-  function renderStats() {
-    const r = state.run.result;
-    const assigned = state.bts.length - r.unassigned.length;
-    let maxD = 0;
-    r.distances.forEach(function (d) { if (d !== null) maxD = Math.max(maxD, d); });
+  function renderStats(res) {
+    const m = metrics(res);
     const items = [
-      ["BTS asignadas", assigned + " / " + state.bts.length],
-      ["Sin asignar", String(r.unassigned.length)],
-      ["Distancia total", fmtMeters(r.totalDistance)],
-      ["Distancia media", fmtMeters(assigned ? r.totalDistance / assigned : 0)],
-      ["Distancia máxima", fmtMeters(maxD)],
+      ["BTS asignadas", m.assigned + " / " + state.bts.length],
+      ["Sin asignar", String(m.unassigned)],
+      ["Distancia total", fmtMeters(m.total)],
+      ["Distancia media", fmtMeters(m.mean)],
+      ["Distancia máxima", fmtMeters(m.max)],
     ];
     els.stats.innerHTML = items.map(function (it) {
       return "<div class=\"stat\"><div class=\"label\">" + it[0] + "</div><div class=\"value\">" + it[1] + "</div></div>";
     }).join("");
   }
 
-  function renderTables() {
+  function renderTables(res, method) {
     const run = state.run;
     const cap = run.capacity;
 
     let html = "<thead><tr><th>Controlador</th><th>Emplazamiento</th><th class=\"num\">X (m)</th><th class=\"num\">Y (m)</th>" +
       "<th class=\"num\">BTS</th><th>Ocupación</th><th class=\"num\">Dist. total</th><th class=\"num\">Dist. media</th><th class=\"num\">Dist. máx.</th></tr></thead><tbody>";
-    controllerSummary().forEach(function (r) {
+    controllerSummary(res).forEach(function (r) {
       const col = run.colors[r.c];
-      html += "<tr><td><span class=\"swatch\" style=\"background:" + col + "\"></span>C" + (r.c + 1) + "</td>" +
+      html += "<tr><td>" + swatch(col) + "C" + (r.c + 1) + "</td>" +
         "<td>" + escapeHtml(r.site.id) + "</td>" +
         "<td class=\"num\">" + fmtNum(r.site.x) + "</td><td class=\"num\">" + fmtNum(r.site.y) + "</td>" +
         "<td class=\"num\">" + r.load + " / " + cap + "</td>" +
@@ -503,60 +623,154 @@
     });
     els.controllerTable.innerHTML = html + "</tbody>";
 
+    const withRound = method === "rounds";
     const order = new Array(state.bts.length).fill(null);
-    run.result.steps.forEach(function (s, k) { order[s.bts] = k + 1; });
+    const roundOf = new Array(state.bts.length).fill(null);
+    res.steps.forEach(function (s, k) { order[s.bts] = k + 1; roundOf[s.bts] = s.round; });
     html = "<thead><tr><th>Id BTS</th><th class=\"num\">X (m)</th><th class=\"num\">Y (m)</th><th>Controlador</th>" +
-      "<th class=\"num\">Distancia</th><th class=\"num\">Orden Greedy</th></tr></thead><tbody>";
+      "<th class=\"num\">Distancia</th>" + (withRound ? "<th class=\"num\">Ronda</th>" : "") +
+      "<th class=\"num\">Orden</th></tr></thead><tbody>";
     state.bts.forEach(function (b, i) {
-      const c = run.result.assignment[i];
+      const c = res.assignment[i];
       html += "<tr" + (c === -1 ? " class=\"unassigned\"" : "") + "><td>" + escapeHtml(b.id) + "</td>" +
         "<td class=\"num\">" + fmtNum(b.x) + "</td><td class=\"num\">" + fmtNum(b.y) + "</td>" +
-        "<td>" + (c === -1 ? "Sin asignar" : "<span class=\"swatch\" style=\"background:" + run.colors[c] + "\"></span>C" + (c + 1)) + "</td>" +
-        "<td class=\"num\">" + fmtMeters(run.result.distances[i]) + "</td>" +
+        "<td>" + (c === -1 ? "Sin asignar" : swatch(run.colors[c]) + "C" + (c + 1)) + "</td>" +
+        "<td class=\"num\">" + fmtMeters(res.distances[i]) + "</td>" +
+        (withRound ? "<td class=\"num\">" + (roundOf[i] === null ? "—" : roundOf[i]) + "</td>" : "") +
         "<td class=\"num\">" + (order[i] === null ? "—" : order[i]) + "</td></tr>";
     });
     els.assignmentTable.innerHTML = html + "</tbody>";
   }
 
+  function renderCompare() {
+    const run = state.run;
+    const g = run.results.greedy;
+    const r = run.results.rounds;
+    const mg = metrics(g);
+    const mr = metrics(r);
+
+    // [etiqueta, valor greedy, valor rondas, formato, true si "menos es mejor" / false si "más es mejor" / null]
+    const rows = [
+      ["BTS asignadas", mg.assigned, mr.assigned, String, false],
+      ["BTS sin asignar", mg.unassigned, mr.unassigned, String, true],
+      ["Distancia total", mg.total, mr.total, fmtMeters, true],
+      ["Distancia media", mg.mean, mr.mean, fmtMeters, true],
+      ["Distancia máxima", mg.max, mr.max, fmtMeters, true],
+      ["Desviación típica de la distancia", mg.std, mr.std, fmtMeters, true],
+      ["BTS por controlador (mín. – máx.)", null, null, null, null],
+    ];
+
+    let html = "<thead><tr><th>Indicador</th><th class=\"num\">" + METHODS.greedy.label + "</th><th class=\"num\">" +
+      METHODS.rounds.label + " (" + run.rounds + " rondas)</th><th class=\"num\">Diferencia (rondas − clásico)</th></tr></thead><tbody>";
+    rows.forEach(function (row) {
+      if (row[3] === null) {
+        html += "<tr><td>" + row[0] + "</td><td class=\"num\">" + mg.minLoad + " – " + mg.maxLoad + "</td>" +
+          "<td class=\"num\">" + mr.minLoad + " – " + mr.maxLoad + "</td><td class=\"num\">—</td></tr>";
+        return;
+      }
+      const a = row[1], b = row[2], fmt = row[3], lessIsBetter = row[4];
+      const diff = b - a;
+      const eps = 1e-9;
+      let clsA = "", clsB = "";
+      if (Math.abs(diff) > eps) {
+        const roundsBetter = lessIsBetter ? diff < 0 : diff > 0;
+        clsA = roundsBetter ? "" : " better";
+        clsB = roundsBetter ? " better" : "";
+      }
+      const diffText = Math.abs(diff) <= eps ? "=" : (diff > 0 ? "+" : "−") + fmt(Math.abs(diff));
+      html += "<tr><td>" + row[0] + "</td><td class=\"num" + clsA + "\">" + fmt(a) + "</td>" +
+        "<td class=\"num" + clsB + "\">" + fmt(b) + "</td><td class=\"num\">" + diffText + "</td></tr>";
+    });
+    els.compareTable.innerHTML = html + "</tbody>";
+
+    let changed = 0;
+    g.assignment.forEach(function (c, i) { if (c !== r.assignment[i]) changed++; });
+    els.compareNote.textContent = changed === 0
+      ? "Los dos métodos producen exactamente la misma asignación."
+      : changed + " de " + state.bts.length + " BTS (" + fmtNum((100 * changed) / state.bts.length, 0) +
+        " %) tienen un controlador distinto en cada método. En verde, el método con mejor valor en cada indicador.";
+
+    const sg = controllerSummary(g);
+    const sr = controllerSummary(r);
+    html = "<thead><tr><th>Controlador</th><th>Emplazamiento</th>" +
+      "<th class=\"num\">BTS clásico</th><th class=\"num\">BTS rondas</th>" +
+      "<th class=\"num\">Dist. media clásico</th><th class=\"num\">Dist. media rondas</th>" +
+      "<th class=\"num\">Dist. máx. clásico</th><th class=\"num\">Dist. máx. rondas</th></tr></thead><tbody>";
+    sg.forEach(function (a, c) {
+      const b = sr[c];
+      html += "<tr><td>" + swatch(run.colors[c]) + "C" + (c + 1) + "</td><td>" + escapeHtml(a.site.id) + "</td>" +
+        "<td class=\"num\">" + a.load + "</td><td class=\"num\">" + b.load + "</td>" +
+        "<td class=\"num\">" + fmtMeters(a.load ? a.total / a.load : 0) + "</td>" +
+        "<td class=\"num\">" + fmtMeters(b.load ? b.total / b.load : 0) + "</td>" +
+        "<td class=\"num\">" + fmtMeters(a.max) + "</td><td class=\"num\">" + fmtMeters(b.max) + "</td></tr>";
+    });
+    els.compareCtrlTable.innerHTML = html + "</tbody>";
+  }
+
   function exportResults() {
     const run = state.run;
-    const round = function (v) { return v === null ? null : Math.round(v * 100) / 100; };
-    const order = new Array(state.bts.length).fill(null);
-    run.result.steps.forEach(function (s, k) { order[s.bts] = k + 1; });
+    const round2 = function (v) { return v === null ? null : Math.round(v * 100) / 100; };
+    const g = run.results.greedy;
+    const r = run.results.rounds;
+    const info = {};
+    ["greedy", "rounds"].forEach(function (m) {
+      const order = new Array(state.bts.length).fill(null);
+      const rnd = new Array(state.bts.length).fill(null);
+      run.results[m].steps.forEach(function (s, k) { order[s.bts] = k + 1; rnd[s.bts] = s.round; });
+      info[m] = { order: order, round: rnd };
+    });
+    const ctrlName = function (c) { return c === -1 ? "Sin asignar" : "C" + (c + 1); };
 
     const assignRows = state.bts.map(function (b, i) {
-      const c = run.result.assignment[i];
       return {
         "Id BTS": b.id, "X (m)": b.x, "Y (m)": b.y,
-        "Controlador": c === -1 ? "Sin asignar" : "C" + (c + 1),
-        "Id BTS controlador": c === -1 ? "" : state.bts[run.controllers[c]].id,
-        "Distancia (m)": round(run.result.distances[i]),
-        "Orden Greedy": order[i],
+        "Controlador (clásico)": ctrlName(g.assignment[i]),
+        "Distancia clásico (m)": round2(g.distances[i]),
+        "Orden clásico": info.greedy.order[i],
+        "Controlador (rondas)": ctrlName(r.assignment[i]),
+        "Distancia rondas (m)": round2(r.distances[i]),
+        "Ronda": info.rounds.round[i],
+        "Orden rondas": info.rounds.order[i],
       };
     });
-    const ctrlRows = controllerSummary().map(function (r) {
+    const sg = controllerSummary(g);
+    const sr = controllerSummary(r);
+    const ctrlRows = sg.map(function (a, c) {
+      const b = sr[c];
       return {
-        "Controlador": "C" + (r.c + 1), "Id BTS emplazamiento": r.site.id,
-        "X (m)": r.site.x, "Y (m)": r.site.y,
-        "BTS asignadas": r.load, "Capacidad": run.capacity,
-        "Distancia total (m)": round(r.total),
-        "Distancia media (m)": round(r.load ? r.total / r.load : 0),
-        "Distancia máxima (m)": round(r.max),
+        "Controlador": "C" + (c + 1), "Id BTS emplazamiento": a.site.id,
+        "X (m)": a.site.x, "Y (m)": a.site.y, "Capacidad": run.capacity,
+        "BTS clásico": a.load, "Dist. total clásico (m)": round2(a.total),
+        "Dist. media clásico (m)": round2(a.load ? a.total / a.load : 0), "Dist. máx. clásico (m)": round2(a.max),
+        "BTS rondas": b.load, "Dist. total rondas (m)": round2(b.total),
+        "Dist. media rondas (m)": round2(b.load ? b.total / b.load : 0), "Dist. máx. rondas (m)": round2(b.max),
       };
     });
+    const mg = metrics(g), mr = metrics(r);
+    const cmpRows = [
+      ["BTS asignadas", mg.assigned, mr.assigned],
+      ["BTS sin asignar", mg.unassigned, mr.unassigned],
+      ["Distancia total (m)", round2(mg.total), round2(mr.total)],
+      ["Distancia media (m)", round2(mg.mean), round2(mr.mean)],
+      ["Distancia máxima (m)", round2(mg.max), round2(mr.max)],
+      ["Desviación típica de la distancia (m)", round2(mg.std), round2(mr.std)],
+      ["Mín. BTS por controlador", mg.minLoad, mr.minLoad],
+      ["Máx. BTS por controlador", mg.maxLoad, mr.maxLoad],
+    ].map(function (x) { return { "Indicador": x[0], "Greedy clásico": x[1], "Greedy por rondas": x[2] }; });
     const params = [
       { "Parámetro": "Fichero", "Valor": state.fileName },
       { "Parámetro": "Número de BTS", "Valor": state.bts.length },
       { "Parámetro": "Número de controladores", "Valor": run.controllers.length },
       { "Parámetro": "Máx. BTS por controlador", "Valor": run.capacity },
-      { "Parámetro": "Semilla", "Valor": els.seed.value || "(aleatoria)" },
-      { "Parámetro": "BTS sin asignar", "Valor": run.result.unassigned.length },
-      { "Parámetro": "Distancia total (m)", "Valor": round(run.result.totalDistance) },
+      { "Parámetro": "Número de rondas", "Valor": run.rounds },
+      { "Parámetro": "Límites acumulados por ronda", "Valor": r.limits.join(", ") },
+      { "Parámetro": "Semilla", "Valor": run.seed || "(aleatoria)" },
     ];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(assignRows), "Asignacion");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ctrlRows), "Controladores");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cmpRows), "Comparacion");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(params), "Parametros");
     XLSX.writeFile(wb, "resultado_red_agregacion.xlsx");
   }
@@ -572,13 +786,18 @@
   });
   els.numControllers.addEventListener("input", updateCapacityInfo);
   els.capacity.addEventListener("input", updateCapacityInfo);
+  els.numRounds.addEventListener("input", updateCapacityInfo);
   els.runBtn.addEventListener("click", run);
-  els.stepBack.addEventListener("click", function () { stopPlay(); setShown(state.shown - 1); });
-  els.stepFwd.addEventListener("click", function () { stopPlay(); setShown(state.shown + 1); });
+  els.tabButtons.forEach(function (b) {
+    b.addEventListener("click", function () { if (state.run) showTab(b.dataset.tab); });
+  });
+  els.stepBack.addEventListener("click", function () { stopPlay(); setShown(state.shown[state.tab] - 1); });
+  els.stepFwd.addEventListener("click", function () { stopPlay(); setShown(state.shown[state.tab] + 1); });
   els.stepAll.addEventListener("click", function () { stopPlay(); setShown(Infinity); });
   els.stepSlider.addEventListener("input", function () { stopPlay(); setShown(Number(els.stepSlider.value)); });
   els.playBtn.addEventListener("click", togglePlay);
   els.exportBtn.addEventListener("click", exportResults);
+  els.exportBtn2.addEventListener("click", exportResults);
   els.canvas.addEventListener("mousemove", onHover);
   els.canvas.addEventListener("mouseleave", function () { els.tooltip.hidden = true; });
   window.addEventListener("resize", draw);

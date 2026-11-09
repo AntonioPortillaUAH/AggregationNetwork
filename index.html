@@ -36,6 +36,10 @@
           <input type="number" id="capacity" min="1" step="1" value="25">
         </label>
         <label>
+          <span>Número de rondas <em>(Greedy por rondas)</em></span>
+          <input type="number" id="numRounds" min="1" step="1" value="5">
+        </label>
+        <label>
           <span>Semilla aleatoria <em>(opcional)</em></span>
           <input type="text" id="seed" placeholder="vacío = aleatorio">
         </label>
@@ -45,7 +49,7 @@
 
       <section class="card" id="stepCard" hidden>
         <h2>3. Paso a paso</h2>
-        <p class="hint">Recorre las asignaciones en el orden en que las realiza el algoritmo (de menor a mayor distancia).</p>
+        <p class="hint" id="stepHint">Recorre las asignaciones en el orden en que las realiza el algoritmo.</p>
         <div class="steps">
           <button type="button" id="stepBack" title="Paso anterior">◀</button>
           <button type="button" id="playBtn">▶ Reproducir</button>
@@ -58,7 +62,16 @@
     </aside>
 
     <section class="content">
-      <div class="card map-card">
+      <div class="tabs-wrap" id="tabsWrap" hidden>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" id="tab-greedy" data-tab="greedy" aria-selected="true">Greedy clásico</button>
+          <button type="button" role="tab" id="tab-rounds" data-tab="rounds" aria-selected="false">Greedy por rondas</button>
+          <button type="button" role="tab" id="tab-compare" data-tab="compare" aria-selected="false">Comparación</button>
+        </div>
+        <p class="method-info" id="methodInfo"></p>
+      </div>
+
+      <div class="card map-card" id="mapCard">
         <canvas id="map"></canvas>
         <div id="tooltip" class="tooltip" hidden></div>
         <div id="legend" class="legend"></div>
@@ -78,6 +91,21 @@
         <div class="card">
           <h2>Asignación de BTS</h2>
           <div class="table-wrap tall"><table id="assignmentTable"></table></div>
+        </div>
+      </div>
+
+      <div id="compare" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h2>Indicadores de los dos métodos</h2>
+            <button type="button" id="exportBtn2">Descargar resultados (.xlsx)</button>
+          </div>
+          <div class="table-wrap"><table id="compareTable"></table></div>
+          <p class="hint" id="compareNote"></p>
+        </div>
+        <div class="card">
+          <h2>Comparación por controlador</h2>
+          <div class="table-wrap"><table id="compareCtrlTable"></table></div>
         </div>
       </div>
     </section>

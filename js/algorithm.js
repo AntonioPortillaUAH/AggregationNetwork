@@ -5,7 +5,8 @@
  *  - Generador pseudoaleatorio con semilla (para repetir experimentos).
  *  - Selección aleatoria de los emplazamientos de los controladores.
  *  - Algoritmo Greedy de asignación BTS -> controlador por distancia
- *    respetando la capacidad máxima de cada controlador.
+ *    respetando la capacidad máxima de cada controlador, en su versión
+ *    clásica y en su versión por rondas.
  *
  * Funciona tanto en el navegador (window.Aggregation) como en Node (require).
  */
@@ -115,32 +116,7 @@
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
-  /**
-   * Algoritmo Greedy de asignación por distancia con capacidad.
-   *
-   * 1. Se calculan las distancias de todas las parejas (BTS, controlador).
-   * 2. Se ordenan de menor a mayor distancia.
-   * 3. Se recorren en ese orden: si la BTS aún no está asignada y el
-   *    controlador no ha alcanzado su capacidad, se asigna.
-   *
-   * Parámetros:
-   *   bts          lista de {id, x, y}
-   *   controllers  índices (en `bts`) de los emplazamientos de controlador
-   *   capacity     número máximo de BTS por controlador
-   *
-   * Devuelve:
-   *   assignment[i]   índice del controlador (0..C-1) de la BTS i, o -1
-   *   distances[i]    distancia de la BTS i a su controlador (o null)
-   *   steps           asignaciones en el orden en que las hace el algoritmo
-   *   loads[c]        número de BTS asignadas al controlador c
-   *   unassigned      índices de BTS sin controlador (capacidad insuficiente)
-   *   totalDistance   suma de las distancias de todas las asignaciones
-   */
-  function greedyAssign(bts, controllers, capacity) {
-    if (!Number.isInteger(capacity) || capacity < 1) {
-      throw new Error("La capacidad por controlador debe ser un entero mayor que 0.");
-    }
-
+  function sortedPairs(bts, controllers) {
     const pairs = [];
     for (let i = 0; i < bts.length; i++) {
       for (let c = 0; c < controllers.length; c++) {
@@ -151,21 +127,79 @@
     pairs.sort(function (p, q) {
       return p.distance - q.distance || p.bts - q.bts || p.controller - q.controller;
     });
+    return pairs;
+  }
 
+  /**
+   * Límite acumulado de BTS por controlador al final de cada ronda.
+   * En cada ronda cada controlador puede recibir capacidad / rondas BTS más
+   * (redondeado), de modo que en la última ronda el límite es la capacidad.
+   * Ej.: capacidad 20 y 3 rondas -> [7, 13, 20].
+   */
+  function roundLimits(capacity, rounds) {
+    const limits = [];
+    for (let r = 1; r <= rounds; r++) limits.push(Math.round((capacity * r) / rounds));
+    return limits;
+  }
+
+  /**
+   * Algoritmo Greedy de asignación por distancia con capacidad, en rondas.
+   *
+   * 1. Se calculan las distancias de todas las parejas (BTS, controlador).
+   * 2. Se ordenan de menor a mayor distancia.
+   * 3. En cada ronda r se recorren las parejas en ese orden: si la BTS aún no
+   *    está asignada y el controlador no ha alcanzado el límite de la ronda
+   *    (limits[r]), se asigna.
+   *
+   * Con una sola ronda el límite es directamente la capacidad y se obtiene el
+   * Greedy clásico.
+   *
+   * Parámetros:
+   *   bts          lista de {id, x, y}
+   *   controllers  índices (en `bts`) de los emplazamientos de controlador
+   *   capacity     número máximo de BTS por controlador
+   *   rounds       número de rondas (1 = Greedy clásico)
+   *
+   * Devuelve:
+   *   assignment[i]   índice del controlador (0..C-1) de la BTS i, o -1
+   *   distances[i]    distancia de la BTS i a su controlador (o null)
+   *   steps           asignaciones en el orden en que las hace el algoritmo,
+   *                   {bts, controller, distance, round}
+   *   loads[c]        número de BTS asignadas al controlador c
+   *   unassigned      índices de BTS sin controlador (capacidad insuficiente)
+   *   totalDistance   suma de las distancias de todas las asignaciones
+   *   limits          límite acumulado por controlador en cada ronda
+   */
+  function greedyRoundsAssign(bts, controllers, capacity, rounds) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error("La capacidad por controlador debe ser un entero mayor que 0.");
+    }
+    if (!Number.isInteger(rounds) || rounds < 1) {
+      throw new Error("El número de rondas debe ser un entero mayor que 0.");
+    }
+    if (rounds > capacity) {
+      throw new Error("El número de rondas (" + rounds + ") no puede ser mayor que el máximo de BTS por controlador (" + capacity + ").");
+    }
+
+    const pairs = sortedPairs(bts, controllers);
+    const limits = roundLimits(capacity, rounds);
     const assignment = new Array(bts.length).fill(-1);
     const distances = new Array(bts.length).fill(null);
     const loads = new Array(controllers.length).fill(0);
     const steps = [];
     let remaining = Math.min(bts.length, controllers.length * capacity);
 
-    for (let k = 0; k < pairs.length && remaining > 0; k++) {
-      const p = pairs[k];
-      if (assignment[p.bts] !== -1 || loads[p.controller] >= capacity) continue;
-      assignment[p.bts] = p.controller;
-      distances[p.bts] = p.distance;
-      loads[p.controller]++;
-      remaining--;
-      steps.push({ bts: p.bts, controller: p.controller, distance: p.distance });
+    for (let r = 0; r < rounds && remaining > 0; r++) {
+      const limit = limits[r];
+      for (let k = 0; k < pairs.length && remaining > 0; k++) {
+        const p = pairs[k];
+        if (assignment[p.bts] !== -1 || loads[p.controller] >= limit) continue;
+        assignment[p.bts] = p.controller;
+        distances[p.bts] = p.distance;
+        loads[p.controller]++;
+        remaining--;
+        steps.push({ bts: p.bts, controller: p.controller, distance: p.distance, round: r + 1 });
+      }
     }
 
     const unassigned = [];
@@ -182,7 +216,18 @@
       loads: loads,
       unassigned: unassigned,
       totalDistance: totalDistance,
+      limits: limits,
     };
+  }
+
+  /**
+   * Algoritmo Greedy clásico de asignación por distancia con capacidad:
+   * se recorren las parejas (BTS, controlador) de menor a mayor distancia y se
+   * asigna la BTS si aún está libre y el controlador no está lleno.
+   * Equivale a greedyRoundsAssign con una única ronda.
+   */
+  function greedyAssign(bts, controllers, capacity) {
+    return greedyRoundsAssign(bts, controllers, capacity, 1);
   }
 
   return {
@@ -190,6 +235,8 @@
     createRng: createRng,
     selectControllers: selectControllers,
     greedyAssign: greedyAssign,
+    greedyRoundsAssign: greedyRoundsAssign,
+    roundLimits: roundLimits,
     distance: distance,
   };
 });

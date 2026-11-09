@@ -151,6 +151,32 @@ button.link {
 .steps button { flex: 0 0 auto; }
 .steps #playBtn { flex: 1 1 auto; }
 
+.tabs-wrap { display: flex; flex-direction: column; gap: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); }
+.tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 8px 14px;
+  margin-bottom: -1px;
+}
+.tabs button[aria-selected="true"] {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.tabs button:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.method-info { margin: 0; color: var(--muted); font-size: 14px; }
+.method-info:empty { display: none; }
+
+#results, #compare { display: flex; flex-direction: column; gap: 16px; }
+#results[hidden], #compare[hidden] { display: none; }
+td.better { color: var(--ok-text); font-weight: 700; }
+td.worse { color: var(--error-text); }
+
 .map-card { position: relative; padding: 8px; }
 #map { display: block; width: 100%; height: 560px; }
 

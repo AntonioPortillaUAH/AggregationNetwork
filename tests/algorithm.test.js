@@ -63,3 +63,54 @@ test("greedyAssign deja BTS sin asignar si no hay capacidad suficiente", () => {
   assert.deepEqual(r.unassigned, [3, 4]);
   assert.equal(r.steps.length, 3);
 });
+
+test("roundLimits reparte la capacidad entre las rondas", () => {
+  assert.deepEqual(A.roundLimits(20, 3), [7, 13, 20]);
+  assert.deepEqual(A.roundLimits(10, 5), [2, 4, 6, 8, 10]);
+  assert.deepEqual(A.roundLimits(7, 1), [7]);
+});
+
+test("greedyRoundsAssign con una ronda coincide con el Greedy clásico", () => {
+  const rng = A.createRng("rondas");
+  const bts = Array.from({ length: 60 }, (_, i) => ({ id: "B" + i, x: rng() * 1000, y: rng() * 1000 }));
+  const ctrls = A.selectControllers(bts.length, 4, rng);
+  const a = A.greedyAssign(bts, ctrls, 12);
+  const b = A.greedyRoundsAssign(bts, ctrls, 12, 1);
+  assert.deepEqual(b.assignment, a.assignment);
+  assert.equal(b.totalDistance, a.totalDistance);
+});
+
+test("greedyRoundsAssign limita las asignaciones de cada ronda", () => {
+  // Controladores en x=0 (A) y x=100 (B); dos BTS cerca de A; capacidad 3.
+  const bts = [
+    { id: "A", x: 0, y: 0 },
+    { id: "B", x: 100, y: 0 },
+    { id: "a1", x: 1, y: 0 },
+    { id: "a2", x: 2, y: 0 },
+  ];
+  // Greedy clásico: A se queda con a1 y a2.
+  assert.deepEqual(A.greedyAssign(bts, [0, 1], 3).assignment, [0, 1, 0, 0]);
+  // Rondas (límites 1, 2, 3): en la ronda 2 A solo admite una BTS más (a1),
+  // así que a2 pasa a B en esa misma ronda.
+  const r = A.greedyRoundsAssign(bts, [0, 1], 3, 3);
+  assert.deepEqual(r.limits, [1, 2, 3]);
+  assert.deepEqual(r.assignment, [0, 1, 0, 1]);
+  assert.deepEqual(r.steps.map((s) => s.round), [1, 1, 2, 2]);
+  assert.deepEqual(r.loads, [2, 2]);
+});
+
+test("greedyRoundsAssign asigna tantas BTS como permite la capacidad total", () => {
+  const rng = A.createRng("total");
+  const bts = Array.from({ length: 50 }, (_, i) => ({ id: "B" + i, x: rng() * 1000, y: rng() * 1000 }));
+  const ctrls = A.selectControllers(bts.length, 3, rng);
+  const r = A.greedyRoundsAssign(bts, ctrls, 10, 4);
+  assert.equal(r.steps.length, 30);
+  assert.deepEqual(r.loads, [10, 10, 10]);
+  assert.equal(r.unassigned.length, 20);
+});
+
+test("greedyRoundsAssign valida el número de rondas", () => {
+  const bts = [{ id: "A", x: 0, y: 0 }];
+  assert.throws(() => A.greedyRoundsAssign(bts, [0], 3, 0));
+  assert.throws(() => A.greedyRoundsAssign(bts, [0], 3, 4));
+});
