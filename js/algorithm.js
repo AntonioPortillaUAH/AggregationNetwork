@@ -3,7 +3,8 @@
  *
  *  - Lectura y validación de las filas del Excel (Id, X, Y).
  *  - Generador pseudoaleatorio con semilla (para repetir experimentos).
- *  - Selección aleatoria de los emplazamientos de los controladores.
+ *  - Selección aleatoria de los emplazamientos de los controladores, con una
+ *    distancia mínima opcional entre ellos.
  *  - Algoritmo Greedy de asignación BTS -> controlador por distancia
  *    respetando la capacidad máxima de cada controlador, en su versión
  *    clásica y en su versión por rondas.
@@ -114,6 +115,116 @@
 
   function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  /**
+   * Elige aleatoriamente `count` emplazamientos de BTS para los controladores
+   * de forma que la distancia entre cualquier pareja de controladores sea
+   * al menos `minDistance` (en metros).
+   *
+   * 1. Intentos aleatorios: se recorren las BTS en un orden aleatorio y se toma
+   *    cada una que quede a `minDistance` o más de las ya elegidas. Se repite
+   *    hasta reunir `count` controladores o agotar los intentos.
+   * 2. Si ningún intento lo consigue, búsqueda exhaustiva con vuelta atrás para
+   *    encontrar una selección o demostrar que no existe. Para no bloquear la
+   *    aplicación se limita el número de nodos explorados.
+   *
+   * Con `minDistance` <= 0 equivale a selectControllers.
+   *
+   * Devuelve:
+   *   controllers   índices de las BTS elegidas, o null si no se ha encontrado solución
+   *   best          mayor número de controladores que se ha conseguido colocar
+   *                 respetando la distancia mínima
+   *   exhaustive    false si la búsqueda se cortó por el límite de nodos; con
+   *                 controllers === null y exhaustive === true está demostrado
+   *                 que no hay solución
+   *   minSeparation menor distancia entre dos controladores elegidos (null si hay < 2)
+   */
+  function selectControllersWithMinDistance(bts, count, minDistance, rng, options) {
+    const n = bts.length;
+    const random = rng || Math.random;
+
+    if (!(minDistance > 0)) {
+      const chosen = selectControllers(n, count, random);
+      return { controllers: chosen, best: count, exhaustive: true, minSeparation: minSeparation(bts, chosen) };
+    }
+    selectControllers(n, count, function () { return 0; }); // misma validación de `count`
+
+    const opts = options || {};
+    const attempts = opts.attempts || 300;
+    const maxNodes = opts.maxNodes || 2000000;
+    const min2 = minDistance * minDistance;
+    const far = function (a, b) {
+      const dx = bts[a].x - bts[b].x, dy = bts[a].y - bts[b].y;
+      return dx * dx + dy * dy >= min2;
+    };
+    const shuffled = function () {
+      const order = [];
+      for (let i = 0; i < n; i++) order.push(i);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+      }
+      return order;
+    };
+    const result = function (chosen, best, exhaustive) {
+      return {
+        controllers: chosen,
+        best: best,
+        exhaustive: exhaustive,
+        minSeparation: chosen ? minSeparation(bts, chosen) : null,
+      };
+    };
+
+    // 1. Intentos aleatorios.
+    let best = 0;
+    for (let a = 0; a < attempts; a++) {
+      const chosen = [];
+      const order = shuffled();
+      for (let k = 0; k < n && chosen.length < count; k++) {
+        const c = order[k];
+        if (chosen.every(function (o) { return far(c, o); })) chosen.push(c);
+      }
+      if (chosen.length === count) return result(chosen, count, true);
+      if (chosen.length > best) best = chosen.length;
+    }
+
+    // 2. Búsqueda exhaustiva con vuelta atrás.
+    const picked = [];
+    let nodes = 0;
+    let aborted = false;
+    function search(candidates) {
+      if (picked.length === count) return true;
+      if (++nodes > maxNodes) { aborted = true; return false; }
+      for (let k = 0; k < candidates.length; k++) {
+        if (picked.length + candidates.length - k < count) return false; // no quedan suficientes
+        const c = candidates[k];
+        const rest = [];
+        for (let m = k + 1; m < candidates.length; m++) {
+          if (far(c, candidates[m])) rest.push(candidates[m]);
+        }
+        picked.push(c);
+        if (picked.length > best) best = picked.length;
+        if (search(rest)) return true;
+        picked.pop();
+        if (aborted) return false;
+      }
+      return false;
+    }
+    if (search(shuffled())) return result(picked.slice(), count, true);
+    return result(null, best, !aborted);
+  }
+
+  // Menor distancia entre dos de los emplazamientos indicados (null si hay menos de 2).
+  function minSeparation(bts, indices) {
+    let min = null;
+    for (let a = 0; a < indices.length; a++) {
+      for (let b = a + 1; b < indices.length; b++) {
+        const d = distance(bts[indices[a]], bts[indices[b]]);
+        if (min === null || d < min) min = d;
+      }
+    }
+    return min;
   }
 
   function sortedPairs(bts, controllers) {
@@ -234,6 +345,8 @@
     parseBtsRows: parseBtsRows,
     createRng: createRng,
     selectControllers: selectControllers,
+    selectControllersWithMinDistance: selectControllersWithMinDistance,
+    minSeparation: minSeparation,
     greedyAssign: greedyAssign,
     greedyRoundsAssign: greedyRoundsAssign,
     roundLimits: roundLimits,

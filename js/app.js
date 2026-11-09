@@ -11,6 +11,7 @@
     fileInfo: $("fileInfo"),
     numControllers: $("numControllers"),
     capacity: $("capacity"),
+    minDist: $("minDist"),
     numRounds: $("numRounds"),
     seed: $("seed"),
     capacityInfo: $("capacityInfo"),
@@ -52,7 +53,7 @@
   const state = {
     bts: [],
     fileName: "",
-    run: null,      // { controllers, capacity, rounds, seed, colors, results: {greedy, rounds} }
+    run: null,      // { controllers, capacity, rounds, minDist, minSeparation, seed, colors, results: {greedy, rounds} }
     tab: "greedy",  // "greedy" | "rounds" | "compare"
     shown: { greedy: 0, rounds: 0 }, // pasos visibles en el mapa de cada método
     timer: null,
@@ -101,6 +102,14 @@
   function readInt(input) {
     const v = Number(input.value);
     return Number.isInteger(v) ? v : NaN;
+  }
+
+  // Distancia mínima entre controladores en metros (el campo está en km). NaN si no es válida.
+  function readMinDist() {
+    const text = String(els.minDist.value).trim().replace(",", ".");
+    if (text === "") return 0;
+    const km = Number(text);
+    return Number.isFinite(km) && km >= 0 ? km * 1000 : NaN;
   }
 
   function cssVar(name) {
@@ -195,6 +204,7 @@
 
     if (!(n >= 1)) problem = "El número de controladores debe ser un entero ≥ 1.";
     else if (!(cap >= 1)) problem = "El máximo de BTS por controlador debe ser un entero ≥ 1.";
+    else if (Number.isNaN(readMinDist())) problem = "La distancia mínima entre controladores debe ser un número ≥ 0 (en km).";
     else if (!(rounds >= 1)) problem = "El número de rondas debe ser un entero ≥ 1.";
     else if (rounds > cap) problem = "El número de rondas (" + rounds + ") no puede superar el máximo de BTS por controlador (" + cap + ").";
     else if (total && n > total) problem = "Hay más controladores (" + n + ") que BTS (" + total + ").";
@@ -223,23 +233,58 @@
     const limits = A.roundLimits(cap, rounds);
     html += "<br>Rondas: hasta " + fmtNum(cap / rounds, 1) + " BTS por controlador y ronda " +
       "(límites acumulados: " + (limits.length <= 10 ? limits.join(", ") : limits.slice(0, 9).join(", ") + ", …, " + cap) + ").";
+    const minDist = readMinDist();
+    if (minDist > 0) {
+      html += "<br>Los controladores se elegirán a " + fmtMeters(minDist) + " o más unos de otros.";
+    }
     setInfo(els.capacityInfo, kind, html);
   }
 
   // ------------------------------------------------------------------ ejecución
+
+  // Quita los resultados anteriores y deja solo las BTS en el mapa.
+  function clearRun() {
+    state.run = null;
+    state.shown = { greedy: 0, rounds: 0 };
+    els.tabsWrap.hidden = true;
+    els.results.hidden = true;
+    els.compare.hidden = true;
+    els.stepCard.hidden = true;
+    els.mapCard.hidden = false;
+    els.legend.innerHTML = "";
+    draw();
+  }
 
   function run() {
     stopPlay();
     const n = readInt(els.numControllers);
     const cap = readInt(els.capacity);
     const rounds = readInt(els.numRounds);
+    const minDist = readMinDist();
     try {
       const rng = A.createRng(els.seed.value);
-      const controllers = A.selectControllers(state.bts.length, n, rng);
+      const sel = A.selectControllersWithMinDistance(state.bts, n, minDist, rng);
+      if (!sel.controllers) {
+        clearRun();
+        setInfo(els.capacityInfo, "error",
+          "<b>No se han ejecutado los algoritmos.</b> " +
+          (sel.exhaustive
+            ? "No existe ninguna forma de elegir " + n + " controladores entre estas BTS con una distancia mínima de " +
+              fmtMeters(minDist) + " entre ellos" +
+              (sel.best === n - 1 ? ": como máximo caben " + sel.best + "." : " (el mejor reparto encontrado coloca " + sel.best + ").")
+            : "No se ha encontrado ninguna forma de elegir " + n + " controladores con una distancia mínima de " +
+              fmtMeters(minDist) + " (la búsqueda se ha detenido por ser demasiado larga; el mejor intento coloca " +
+              sel.best + "). Es probable que no exista.") +
+          " Reduce la distancia mínima o el número de controladores.");
+        return;
+      }
+      const controllers = sel.controllers;
       state.run = {
         controllers: controllers,
         capacity: cap,
         rounds: rounds,
+        minDist: minDist,
+        minSeparation: sel.minSeparation,
         seed: els.seed.value,
         colors: controllerColors(n),
         results: {
@@ -252,9 +297,11 @@
         rounds: state.run.results.rounds.steps.length,
       };
     } catch (err) {
+      clearRun();
       setInfo(els.capacityInfo, "error", escapeHtml(err.message));
       return;
     }
+    updateCapacityInfo();
     els.tabsWrap.hidden = false;
     renderCompare();
     showTab(state.tab);
@@ -286,8 +333,10 @@
       els.stepHint.textContent = "Recorre las asignaciones ronda a ronda; dentro de cada ronda, de menor a mayor distancia.";
     } else {
       els.methodInfo.textContent = "Ambos métodos usan los mismos " + run.controllers.length +
-        " controladores elegidos al azar, así que las diferencias se deben solo al algoritmo.";
+        " controladores elegidos al azar, así que las diferencias se deben solo al algoritmo." + separationText();
     }
+
+    if (isMethod) els.methodInfo.textContent += separationText();
 
     if (isMethod) {
       const res = current();
@@ -297,6 +346,13 @@
       renderTables(res, tab);
       updateStep();
     }
+  }
+
+  function separationText() {
+    const run = state.run;
+    if (run.minSeparation === null) return "";
+    return " Distancia mínima entre los controladores elegidos: " + fmtMeters(run.minSeparation) +
+      (run.minDist > 0 ? " (exigida: " + fmtMeters(run.minDist) + ")." : ".");
   }
 
   // ------------------------------------------------------------- paso a paso
@@ -762,6 +818,8 @@
       { "Parámetro": "Número de BTS", "Valor": state.bts.length },
       { "Parámetro": "Número de controladores", "Valor": run.controllers.length },
       { "Parámetro": "Máx. BTS por controlador", "Valor": run.capacity },
+      { "Parámetro": "Distancia mínima exigida entre controladores (m)", "Valor": run.minDist },
+      { "Parámetro": "Distancia mínima entre los controladores elegidos (m)", "Valor": round2(run.minSeparation) },
       { "Parámetro": "Número de rondas", "Valor": run.rounds },
       { "Parámetro": "Límites acumulados por ronda", "Valor": r.limits.join(", ") },
       { "Parámetro": "Semilla", "Valor": run.seed || "(aleatoria)" },
@@ -787,6 +845,7 @@
   els.numControllers.addEventListener("input", updateCapacityInfo);
   els.capacity.addEventListener("input", updateCapacityInfo);
   els.numRounds.addEventListener("input", updateCapacityInfo);
+  els.minDist.addEventListener("input", updateCapacityInfo);
   els.runBtn.addEventListener("click", run);
   els.tabButtons.forEach(function (b) {
     b.addEventListener("click", function () { if (state.run) showTab(b.dataset.tab); });

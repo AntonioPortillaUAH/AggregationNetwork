@@ -114,3 +114,31 @@ test("greedyRoundsAssign valida el número de rondas", () => {
   assert.throws(() => A.greedyRoundsAssign(bts, [0], 3, 0));
   assert.throws(() => A.greedyRoundsAssign(bts, [0], 3, 4));
 });
+
+test("selectControllersWithMinDistance respeta la distancia mínima", () => {
+  const rng = A.createRng("separacion");
+  const bts = Array.from({ length: 80 }, (_, i) => ({ id: "B" + i, x: rng() * 200000, y: rng() * 200000 }));
+  const r = A.selectControllersWithMinDistance(bts, 6, 50000, A.createRng(3));
+  assert.equal(r.controllers.length, 6);
+  assert.equal(new Set(r.controllers).size, 6);
+  assert.ok(r.minSeparation >= 50000);
+  // Con la misma semilla se obtiene la misma selección.
+  assert.deepEqual(A.selectControllersWithMinDistance(bts, 6, 50000, A.createRng(3)).controllers, r.controllers);
+});
+
+test("selectControllersWithMinDistance detecta que no hay solución", () => {
+  // Cuatro BTS en las esquinas de un cuadrado de 100 m: caben 4 a 100 m, pero a 141 m solo caben las dos de una diagonal (141,4 m).
+  const bts = [[0, 0], [100, 0], [0, 100], [100, 100]].map((p, i) => ({ id: "B" + i, x: p[0], y: p[1] }));
+  assert.equal(A.selectControllersWithMinDistance(bts, 4, 100, A.createRng(1)).controllers.length, 4);
+  const r = A.selectControllersWithMinDistance(bts, 3, 141, A.createRng(1));
+  assert.equal(r.controllers, null);
+  assert.equal(r.exhaustive, true);
+  assert.equal(r.best, 2);
+});
+
+test("selectControllersWithMinDistance sin distancia mínima equivale a selectControllers", () => {
+  const bts = Array.from({ length: 20 }, (_, i) => ({ id: "B" + i, x: i, y: 0 }));
+  const r = A.selectControllersWithMinDistance(bts, 5, 0, A.createRng("x"));
+  assert.deepEqual(r.controllers, A.selectControllers(20, 5, A.createRng("x")));
+  assert.throws(() => A.selectControllersWithMinDistance(bts, 21, 10, A.createRng("x")));
+});

@@ -10,7 +10,8 @@ La aplicación es una página web estática: no necesita instalación ni servido
 
 1. Abrir `index.html` en un navegador (Chrome, Firefox, Edge…).
 2. Cargar un fichero Excel con las estaciones base (o pulsar *Cargar datos de ejemplo*).
-3. Indicar el **número de controladores**, el **máximo de BTS por controlador** y el
+3. Indicar el **número de controladores**, el **máximo de BTS por controlador**, la
+   **distancia mínima entre controladores** (en km; 0 = sin restricción) y el
    **número de rondas** del Greedy por rondas.
 4. Opcionalmente, indicar una **semilla** para que la selección aleatoria sea repetible
    (útil para que todos los alumnos obtengan el mismo resultado).
@@ -32,8 +33,13 @@ Hay un fichero de ejemplo en [`ejemplos/bts_ejemplo.xlsx`](ejemplos/bts_ejemplo.
 
 1. **Selección de controladores**: se eligen al azar tantos emplazamientos de BTS
    (sin repetición) como controladores se hayan indicado. El controlador se instala
-   en ese emplazamiento. Los dos métodos usan los mismos controladores, de modo que
-   las diferencias entre ellos se deben solo al algoritmo.
+   en ese emplazamiento. Si se indica una **distancia mínima entre controladores**,
+   la selección debe cumplir que cualquier pareja de controladores esté al menos a esa
+   distancia: primero se prueban órdenes aleatorios de las BTS y, si ninguno lo
+   consigue, se hace una búsqueda exhaustiva con vuelta atrás. Si no existe ninguna
+   selección posible, la aplicación lo indica y **no se ejecutan los algoritmos de
+   asignación**. Los dos métodos usan los mismos controladores, de modo que las
+   diferencias entre ellos se deben solo al algoritmo.
 2. **Greedy clásico (por distancia con capacidad)**:
    - se calculan las distancias euclídeas de todas las parejas (BTS, controlador);
    - se ordenan de menor a mayor;
